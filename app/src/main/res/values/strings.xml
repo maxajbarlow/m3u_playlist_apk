@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">IPTV Manager</string>
     <!-- Change this URL to your IPTV Manager instance -->
-    <string name="app_url">https://stream.cloudadnthony.com</string>
+    <string name="app_url">https://stream.cloudanthony.com</string>
 </resources>
