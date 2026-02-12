@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IPTV Manager</string>
+    <!-- Change this URL to your IPTV Manager instance -->
+    <string name="app_url">https://iptv.maxbarlow.com</string>
+</resources>

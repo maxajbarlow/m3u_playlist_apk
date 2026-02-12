@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Leanback banner: 320x180dp required by Android TV -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Background gradient matching the web app's purple/dark glassmorphism theme -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="135"
+                android:startColor="#1a0533"
+                android:centerColor="#2d1b69"
+                android:endColor="#6c2bd9"
+                android:type="linear" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+
+    <!-- Subtle inner border -->
+    <item
+        android:left="2dp"
+        android:top="2dp"
+        android:right="2dp"
+        android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="135"
+                android:startColor="#1a0533"
+                android:centerColor="#2d1b69"
+                android:endColor="#4c1d95"
+                android:type="linear" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+
+</layer-list>
