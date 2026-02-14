@@ -42,27 +42,33 @@ jobs:
           KEY_PASSWORD: iptvmanager
         run: ./gradlew assembleRelease
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/tv.apk
+      - name: Rename APK and generate version.json
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/tv.apk
+          # Extract versionCode and versionName from build.gradle
+          VERSION_CODE=$(grep 'versionCode' app/build.gradle | head -1 | sed 's/[^0-9]//g')
+          VERSION_NAME=$(grep 'versionName' app/build.gradle | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "{\"versionCode\":${VERSION_CODE},\"versionName\":\"${VERSION_NAME}\"}" > app/build/outputs/apk/release/version.json
+          cat app/build/outputs/apk/release/version.json
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: tv-apk
-          path: app/build/outputs/apk/release/tv.apk
+          path: |
+            app/build/outputs/apk/release/tv.apk
+            app/build/outputs/apk/release/version.json
 
       - name: Create or update release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="latest"
-          # Delete existing release if present
           gh release delete "$TAG" --yes 2>/dev/null || true
-          # Delete the tag so we can recreate it at HEAD
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
-          # Create new release at current commit
           gh release create "$TAG" \
             app/build/outputs/apk/release/tv.apk \
+            app/build/outputs/apk/release/version.json \
             --title "Latest Build" \
             --notes "Auto-built from commit $(git rev-parse --short HEAD)" \
             --latest
