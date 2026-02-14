@@ -60,6 +60,9 @@ public class MainActivity extends Activity {
         // Load the IPTV Manager URL
         String url = getString(R.string.app_url);
         webView.loadUrl(url);
+
+        // Check for app updates in background
+        new AppUpdater(this, url).checkForUpdate();
     }
 
     /**
