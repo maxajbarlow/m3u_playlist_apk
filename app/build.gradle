@@ -35,4 +35,9 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.leanback:leanback:1.0.0'
     implementation 'androidx.webkit:webkit:1.9.0'
+
+    // ExoPlayer for native HLS playback
+    implementation 'androidx.media3:media3-exoplayer:1.2.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.2.1'
+    implementation 'androidx.media3:media3-ui:1.2.1'
 }

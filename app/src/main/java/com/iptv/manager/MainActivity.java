@@ -15,6 +15,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -53,9 +54,28 @@ public class MainActivity extends Activity {
 
         configureWebView();
 
+        // Expose native player to JavaScript: window.Android.playStream(url, name)
+        webView.addJavascriptInterface(new WebAppInterface(), "Android");
+
         // Load the IPTV Manager URL
         String url = getString(R.string.app_url);
         webView.loadUrl(url);
+    }
+
+    /**
+     * JavaScript interface exposed as window.Android in the WebView.
+     * Allows the web app to launch the native ExoPlayer for HLS streams.
+     */
+    private class WebAppInterface {
+        @JavascriptInterface
+        public void playStream(String url, String name) {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
+                intent.putExtra(PlayerActivity.EXTRA_URL, url);
+                intent.putExtra(PlayerActivity.EXTRA_NAME, name);
+                startActivity(intent);
+            });
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
