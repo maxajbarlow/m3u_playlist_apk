@@ -21,17 +21,35 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Generate signing keystore
+        run: |
+          keytool -genkey -v \
+            -keystore /tmp/iptv-release.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias iptv \
+            -storepass iptvmanager \
+            -keypass iptvmanager \
+            -dname "CN=IPTV Manager, OU=Dev, O=IPTV, L=London, ST=London, C=GB"
+
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Build release APK
+      - name: Build signed release APK
+        env:
+          KEYSTORE_PATH: /tmp/iptv-release.jks
+          KEYSTORE_PASSWORD: iptvmanager
+          KEY_ALIAS: iptv
+          KEY_PASSWORD: iptvmanager
         run: ./gradlew assembleRelease
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/tv.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: tv-apk
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          path: app/build/outputs/apk/release/tv.apk
 
       - name: Create or update release
         env:
@@ -44,7 +62,7 @@ jobs:
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
           # Create new release at current commit
           gh release create "$TAG" \
-            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/apk/release/tv.apk \
             --title "Latest Build" \
-            --notes "Auto-built from commit" \
+            --notes "Auto-built from commit $(git rev-parse --short HEAD)" \
             --latest
