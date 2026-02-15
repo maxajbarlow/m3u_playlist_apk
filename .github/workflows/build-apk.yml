@@ -21,15 +21,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Generate signing keystore
-        run: |
-          keytool -genkey -v \
-            -keystore /tmp/iptv-release.jks \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias iptv \
-            -storepass iptvmanager \
-            -keypass iptvmanager \
-            -dname "CN=IPTV Manager, OU=Dev, O=IPTV, L=London, ST=London, C=GB"
+      - name: Decode signing keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > /tmp/iptv-release.jks
 
       - name: Make gradlew executable
         run: chmod +x gradlew
