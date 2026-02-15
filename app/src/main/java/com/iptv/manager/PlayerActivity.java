@@ -98,9 +98,12 @@ public class PlayerActivity extends Activity {
         hideSystemUI();
     }
 
+    @OptIn(markerClass = UnstableApi.class)
     private void initPlayer(String url) {
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
+        playerView.setControllerShowTimeoutMs(3000);
+        playerView.setControllerAutoShow(false);
 
         player.addListener(new Player.Listener() {
             @Override
