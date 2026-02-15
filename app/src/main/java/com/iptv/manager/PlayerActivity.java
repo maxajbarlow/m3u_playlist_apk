@@ -20,6 +20,7 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.BehindLiveWindowException;
 import androidx.media3.ui.PlayerView;
 
 import org.json.JSONObject;
@@ -54,6 +55,8 @@ public class PlayerActivity extends Activity {
     private String streamName;
     private String authToken;
     private String baseUrl;
+    private int behindLiveRetries = 0;
+    private static final int MAX_BEHIND_LIVE_RETRIES = 3;
 
     @Override
     @OptIn(markerClass = UnstableApi.class)
@@ -117,6 +120,7 @@ public class PlayerActivity extends Activity {
                     case Player.STATE_READY:
                         loadingSpinner.setVisibility(View.GONE);
                         errorText.setVisibility(View.GONE);
+                        behindLiveRetries = 0;
                         reportDebug("player", "Playback started", "channel", streamName);
                         // Auto-hide channel name after 3 seconds
                         channelName.postDelayed(() ->
@@ -133,10 +137,23 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onPlayerError(PlaybackException error) {
+                Throwable cause = error.getCause();
+
+                // BehindLiveWindowException: player fell behind the live edge.
+                // Re-prepare to jump back to the current live position.
+                if (isBehindLiveWindow(cause) && behindLiveRetries < MAX_BEHIND_LIVE_RETRIES) {
+                    behindLiveRetries++;
+                    Log.w(TAG, "Behind live window — re-preparing (attempt " + behindLiveRetries + ")");
+                    reportDebug("player", "Behind live window — recovering",
+                            "channel", streamName, "attempt", String.valueOf(behindLiveRetries));
+                    player.seekToDefaultPosition();
+                    player.prepare();
+                    return;
+                }
+
                 loadingSpinner.setVisibility(View.GONE);
                 String errorCode = "code=" + error.errorCode;
                 String errorMsg = error.getMessage() != null ? error.getMessage() : "unknown";
-                Throwable cause = error.getCause();
                 String causeMsg = cause != null ? cause.getClass().getSimpleName() + ": " + cause.getMessage() : "none";
 
                 Log.e(TAG, "Playback error: " + errorMsg + " " + errorCode + " cause: " + causeMsg);
@@ -195,6 +212,14 @@ public class PlayerActivity extends Activity {
                 Log.w(TAG, "Debug report failed: " + e.getMessage());
             }
         }).start();
+    }
+
+    private static boolean isBehindLiveWindow(Throwable e) {
+        while (e != null) {
+            if (e instanceof BehindLiveWindowException) return true;
+            e = e.getCause();
+        }
+        return false;
     }
 
     private void showError(String message) {
