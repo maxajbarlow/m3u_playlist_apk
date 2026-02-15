@@ -182,19 +182,15 @@ public class PlayerActivity extends Activity {
         // 2B. Custom LoadControl — tune buffers for Fire TV Stick
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                        10_000,  // minBufferMs
-                        30_000,  // maxBufferMs
-                        1_500,   // bufferForPlaybackMs
-                        3_000    // bufferForPlaybackAfterRebufferMs
+                        25_000,  // minBufferMs (was 10s, back to default 25s)
+                        50_000,  // maxBufferMs (was 30s, back to default 50s)
+                        1_500,   // bufferForPlaybackMs (keep fast start)
+                        3_000    // bufferForPlaybackAfterRebufferMs (keep fast recovery)
                 )
                 .build();
 
-        // 2C. DefaultTrackSelector — cap at SD resolution
+        // 2C. DefaultTrackSelector — let ABR decide quality (no resolution cap)
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
-        trackSelector.setParameters(
-                trackSelector.buildUponParameters()
-                        .setMaxVideoSizeSd()
-        );
 
         // 2D. DefaultBandwidthMeter — enable adaptive bitrate
         DefaultBandwidthMeter bandwidthMeter = new DefaultBandwidthMeter.Builder(this).build();
