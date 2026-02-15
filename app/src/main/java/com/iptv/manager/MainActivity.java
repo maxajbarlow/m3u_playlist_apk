@@ -72,10 +72,17 @@ public class MainActivity extends Activity {
     private class WebAppInterface {
         @JavascriptInterface
         public void playStream(String url, String name) {
+            playStream(url, name, null, null);
+        }
+
+        @JavascriptInterface
+        public void playStream(String url, String name, String token, String baseUrl) {
             runOnUiThread(() -> {
                 Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
                 intent.putExtra(PlayerActivity.EXTRA_URL, url);
                 intent.putExtra(PlayerActivity.EXTRA_NAME, name);
+                if (token != null) intent.putExtra(PlayerActivity.EXTRA_TOKEN, token);
+                if (baseUrl != null) intent.putExtra(PlayerActivity.EXTRA_BASE_URL, baseUrl);
                 startActivity(intent);
             });
         }
