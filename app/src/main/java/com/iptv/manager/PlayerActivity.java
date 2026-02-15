@@ -320,9 +320,9 @@ public class PlayerActivity extends Activity {
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
                 .setLiveConfiguration(
                         new MediaItem.LiveConfiguration.Builder()
-                                .setTargetOffsetMs(3_000)    // stay 3s behind live edge
-                                .setMinOffsetMs(1_000)       // never closer than 1s
-                                .setMaxOffsetMs(8_000)       // if >8s behind, seek to live
+                                .setTargetOffsetMs(5_000)    // stay 5s behind live edge
+                                .setMinOffsetMs(2_000)       // never closer than 2s
+                                .setMaxOffsetMs(12_000)      // if >12s behind, seek to live
                                 .setMinPlaybackSpeed(1.0f)   // never slow down
                                 .setMaxPlaybackSpeed(1.04f)  // gentle catch-up only
                                 .build()
