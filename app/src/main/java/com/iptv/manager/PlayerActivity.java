@@ -54,6 +54,7 @@ public class PlayerActivity extends Activity {
     public static final String EXTRA_NAME = "channel_name";
     public static final String EXTRA_TOKEN = "auth_token";
     public static final String EXTRA_BASE_URL = "base_url";
+    public static final String EXTRA_FALLBACK_URL = "fallback_url";
 
     private ExoPlayer player;
     private PlayerView playerView;
@@ -65,6 +66,7 @@ public class PlayerActivity extends Activity {
     private String streamName;
     private String authToken;
     private String baseUrl;
+    private String fallbackUrl;
     private int behindLiveRetries = 0;
     private static final int MAX_BEHIND_LIVE_RETRIES = 3;
 
@@ -112,6 +114,7 @@ public class PlayerActivity extends Activity {
         streamName = getIntent().getStringExtra(EXTRA_NAME);
         authToken = getIntent().getStringExtra(EXTRA_TOKEN);
         baseUrl = getIntent().getStringExtra(EXTRA_BASE_URL);
+        fallbackUrl = getIntent().getStringExtra(EXTRA_FALLBACK_URL);
 
         if (streamName != null && !streamName.isEmpty()) {
             channelName.setText(streamName);
@@ -292,6 +295,19 @@ public class PlayerActivity extends Activity {
                             player.prepare();
                         }
                     }, delay);
+                    return;
+                }
+
+                // All retries exhausted — try fallback URL if available
+                if (fallbackUrl != null && !streamUrl.equals(fallbackUrl)) {
+                    Log.w(TAG, "Primary URL failed, switching to proxy fallback");
+                    reportDebug("player", "Switching to proxy fallback", "channel", streamName);
+                    streamUrl = fallbackUrl;
+                    fallbackUrl = null; // don't loop
+                    errorRetryCount = 0;
+                    behindLiveRetries = 0;
+                    releasePlayer();
+                    initPlayer(streamUrl);
                     return;
                 }
 

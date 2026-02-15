@@ -86,6 +86,19 @@ public class MainActivity extends Activity {
                 startActivity(intent);
             });
         }
+
+        @JavascriptInterface
+        public void playStream(String url, String name, String token, String baseUrl, String fallbackUrl) {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
+                intent.putExtra(PlayerActivity.EXTRA_URL, url);
+                intent.putExtra(PlayerActivity.EXTRA_NAME, name);
+                if (token != null) intent.putExtra(PlayerActivity.EXTRA_TOKEN, token);
+                if (baseUrl != null) intent.putExtra(PlayerActivity.EXTRA_BASE_URL, baseUrl);
+                if (fallbackUrl != null) intent.putExtra(PlayerActivity.EXTRA_FALLBACK_URL, fallbackUrl);
+                startActivity(intent);
+            });
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
