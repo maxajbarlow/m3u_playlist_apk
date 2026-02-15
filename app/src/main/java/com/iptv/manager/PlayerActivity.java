@@ -13,7 +13,9 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.OptIn;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
@@ -144,7 +146,10 @@ public class PlayerActivity extends Activity {
             }
         });
 
-        MediaItem mediaItem = MediaItem.fromUri(Uri.parse(url));
+        MediaItem mediaItem = new MediaItem.Builder()
+                .setUri(Uri.parse(url))
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .build();
         player.setMediaItem(mediaItem);
         player.setPlayWhenReady(true);
         player.prepare();
