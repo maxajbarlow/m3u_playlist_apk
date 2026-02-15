@@ -111,9 +111,10 @@ public class MainActivity extends Activity {
             webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
 
-        // Enable wide viewport for TV display
-        webSettings.setUseWideViewPort(true);
-        webSettings.setLoadWithOverviewMode(true);
+        // Render at native resolution — don't shrink to overview mode
+        // which makes the UI look 720p on 1080p/4K displays
+        webSettings.setUseWideViewPort(false);
+        webSettings.setLoadWithOverviewMode(false);
 
         // Cache settings
         webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
