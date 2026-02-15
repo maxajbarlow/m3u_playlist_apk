@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
@@ -19,8 +21,13 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.source.BehindLiveWindowException;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.ui.PlayerView;
 
 import org.json.JSONObject;
@@ -57,6 +64,16 @@ public class PlayerActivity extends Activity {
     private String baseUrl;
     private int behindLiveRetries = 0;
     private static final int MAX_BEHIND_LIVE_RETRIES = 3;
+
+    // General error retry with exponential backoff
+    private int errorRetryCount = 0;
+    private static final int MAX_ERROR_RETRIES = 5;
+    private static final long[] RETRY_DELAYS_MS = {1000, 2000, 4000, 8000, 8000};
+    private final Handler retryHandler = new Handler(Looper.getMainLooper());
+
+    // Custom HLS source factory (stored for reuse during retries)
+    private HlsMediaSource.Factory hlsFactory;
+    private MediaItem hlsMediaItem;
 
     @Override
     @OptIn(markerClass = UnstableApi.class)
@@ -103,7 +120,33 @@ public class PlayerActivity extends Activity {
 
     @OptIn(markerClass = UnstableApi.class)
     private void initPlayer(String url) {
-        player = new ExoPlayer.Builder(this).build();
+        // 2B. Custom LoadControl — tune buffers for Fire TV Stick
+        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                        10_000,  // minBufferMs
+                        30_000,  // maxBufferMs
+                        1_500,   // bufferForPlaybackMs
+                        3_000    // bufferForPlaybackAfterRebufferMs
+                )
+                .build();
+
+        // 2C. DefaultTrackSelector — cap at SD resolution
+        DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+        trackSelector.setParameters(
+                trackSelector.buildUponParameters()
+                        .setMaxVideoSizeSd()
+        );
+
+        // 2D. DefaultBandwidthMeter — enable adaptive bitrate
+        DefaultBandwidthMeter bandwidthMeter = new DefaultBandwidthMeter.Builder(this).build();
+
+        // Build ExoPlayer with custom components
+        player = new ExoPlayer.Builder(this)
+                .setLoadControl(loadControl)
+                .setTrackSelector(trackSelector)
+                .setBandwidthMeter(bandwidthMeter)
+                .build();
+
         playerView.setPlayer(player);
         playerView.setControllerShowTimeoutMs(3000);
         playerView.setControllerAutoShow(false);
@@ -121,6 +164,7 @@ public class PlayerActivity extends Activity {
                         loadingSpinner.setVisibility(View.GONE);
                         errorText.setVisibility(View.GONE);
                         behindLiveRetries = 0;
+                        errorRetryCount = 0; // Reset general retry counter on successful playback
                         reportDebug("player", "Playback started", "channel", streamName);
                         // Auto-hide channel name after 3 seconds
                         channelName.postDelayed(() ->
@@ -139,19 +183,6 @@ public class PlayerActivity extends Activity {
             public void onPlayerError(PlaybackException error) {
                 Throwable cause = error.getCause();
 
-                // BehindLiveWindowException: player fell behind the live edge.
-                // Re-prepare to jump back to the current live position.
-                if (isBehindLiveWindow(cause) && behindLiveRetries < MAX_BEHIND_LIVE_RETRIES) {
-                    behindLiveRetries++;
-                    Log.w(TAG, "Behind live window — re-preparing (attempt " + behindLiveRetries + ")");
-                    reportDebug("player", "Behind live window — recovering",
-                            "channel", streamName, "attempt", String.valueOf(behindLiveRetries));
-                    player.seekToDefaultPosition();
-                    player.prepare();
-                    return;
-                }
-
-                loadingSpinner.setVisibility(View.GONE);
                 String errorCode = "code=" + error.errorCode;
                 String errorMsg = error.getMessage() != null ? error.getMessage() : "unknown";
                 String causeMsg = cause != null ? cause.getClass().getSimpleName() + ": " + cause.getMessage() : "none";
@@ -162,15 +193,69 @@ public class PlayerActivity extends Activity {
                         "errorCode", errorCode,
                         "cause", causeMsg,
                         "url", streamUrl != null && streamUrl.length() > 120 ? streamUrl.substring(0, 120) : streamUrl);
+
+                // 2G. BehindLiveWindowException: seek to live edge and retry
+                if (isBehindLiveWindow(cause) && behindLiveRetries < MAX_BEHIND_LIVE_RETRIES) {
+                    behindLiveRetries++;
+                    Log.w(TAG, "Behind live window — re-preparing (attempt " + behindLiveRetries + ")");
+                    reportDebug("player", "Behind live window — recovering",
+                            "channel", streamName, "attempt", String.valueOf(behindLiveRetries));
+                    loadingSpinner.setVisibility(View.VISIBLE);
+                    errorText.setVisibility(View.GONE);
+                    player.seekToDefaultPosition();
+                    player.prepare();
+                    return;
+                }
+
+                // 2G. General error retry with exponential backoff
+                if (errorRetryCount < MAX_ERROR_RETRIES) {
+                    long delay = RETRY_DELAYS_MS[errorRetryCount];
+                    errorRetryCount++;
+                    Log.w(TAG, "Retrying playback in " + delay + "ms (attempt " + errorRetryCount + "/" + MAX_ERROR_RETRIES + ")");
+                    reportDebug("player", "Retrying after error",
+                            "channel", streamName,
+                            "attempt", String.valueOf(errorRetryCount),
+                            "delayMs", String.valueOf(delay));
+
+                    // Show loading spinner during retry (not error text)
+                    loadingSpinner.setVisibility(View.VISIBLE);
+                    errorText.setVisibility(View.GONE);
+
+                    retryHandler.postDelayed(() -> {
+                        if (player != null) {
+                            player.prepare();
+                        }
+                    }, delay);
+                    return;
+                }
+
+                // All retries exhausted — show error
                 showError("Playback error: " + errorMsg);
             }
         });
 
-        MediaItem mediaItem = new MediaItem.Builder()
+        // 2E. Custom HttpDataSource.Factory
+        DefaultHttpDataSource.Factory httpDataSourceFactory = new DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(8_000)
+                .setReadTimeoutMs(15_000)
+                .setAllowCrossProtocolRedirects(true);
+
+        // 2F. HlsMediaSource with LiveConfiguration
+        hlsFactory = new HlsMediaSource.Factory(httpDataSourceFactory)
+                .setAllowChunklessPreparation(true);
+
+        hlsMediaItem = new MediaItem.Builder()
                 .setUri(Uri.parse(url))
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .setLiveConfiguration(
+                        new MediaItem.LiveConfiguration.Builder()
+                                .setMaxPlaybackSpeed(1.04f)
+                                .build()
+                )
                 .build();
-        player.setMediaItem(mediaItem);
+
+        HlsMediaSource hlsMediaSource = hlsFactory.createMediaSource(hlsMediaItem);
+        player.setMediaSource(hlsMediaSource);
         player.setPlayWhenReady(true);
         player.prepare();
     }
@@ -287,6 +372,7 @@ public class PlayerActivity extends Activity {
     }
 
     private void releasePlayer() {
+        retryHandler.removeCallbacksAndMessages(null);
         if (player != null) {
             player.stop();
             player.release();
