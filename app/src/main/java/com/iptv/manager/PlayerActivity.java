@@ -1,7 +1,10 @@
 package com.iptv.manager;
 
 import android.app.Activity;
+import android.content.Context;
+import android.media.AudioManager;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -75,6 +78,16 @@ public class PlayerActivity extends Activity {
     private HlsMediaSource.Factory hlsFactory;
     private MediaItem hlsMediaItem;
 
+    // WiFi lock — prevent WiFi power-save during playback
+    private WifiManager.WifiLock wifiLock;
+
+    // Audio focus management
+    private AudioManager audioManager;
+    private AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
+
+    // Player event listener (stored for cleanup)
+    private Player.Listener playerListener;
+
     @Override
     @OptIn(markerClass = UnstableApi.class)
     protected void onCreate(Bundle savedInstanceState) {
@@ -120,6 +133,52 @@ public class PlayerActivity extends Activity {
 
     @OptIn(markerClass = UnstableApi.class)
     private void initPlayer(String url) {
+        // WiFi lock — prevent WiFi power-save during playback
+        try {
+            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, TAG + ":wifi_lock");
+                wifiLock.setReferenceCounted(false);
+                wifiLock.acquire();
+                Log.d(TAG, "WiFi lock acquired");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to acquire WiFi lock: " + e.getMessage());
+        }
+
+        // Audio focus — request focus for media playback
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        audioFocusChangeListener = focusChange -> {
+            if (player == null) return;
+            switch (focusChange) {
+                case AudioManager.AUDIOFOCUS_LOSS:
+                    Log.d(TAG, "Audio focus lost — stopping playback");
+                    player.setPlayWhenReady(false);
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                    Log.d(TAG, "Audio focus lost transiently — pausing");
+                    player.setPlayWhenReady(false);
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                    Log.d(TAG, "Audio focus duck — lowering volume");
+                    player.setVolume(0.3f);
+                    break;
+                case AudioManager.AUDIOFOCUS_GAIN:
+                    Log.d(TAG, "Audio focus gained — resuming");
+                    player.setVolume(1.0f);
+                    player.setPlayWhenReady(true);
+                    break;
+            }
+        };
+        if (audioManager != null) {
+            int result = audioManager.requestAudioFocus(
+                    audioFocusChangeListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN
+            );
+            Log.d(TAG, "Audio focus request result: " + result);
+        }
+
         // 2B. Custom LoadControl — tune buffers for Fire TV Stick
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -151,7 +210,7 @@ public class PlayerActivity extends Activity {
         playerView.setControllerShowTimeoutMs(3000);
         playerView.setControllerAutoShow(false);
 
-        player.addListener(new Player.Listener() {
+        playerListener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 switch (playbackState) {
@@ -222,7 +281,7 @@ public class PlayerActivity extends Activity {
                     errorText.setVisibility(View.GONE);
 
                     retryHandler.postDelayed(() -> {
-                        if (player != null) {
+                        if (player != null && !isFinishing()) {
                             player.prepare();
                         }
                     }, delay);
@@ -232,7 +291,8 @@ public class PlayerActivity extends Activity {
                 // All retries exhausted — show error
                 showError("Playback error: " + errorMsg);
             }
-        });
+        };
+        player.addListener(playerListener);
 
         // 2E. Custom HttpDataSource.Factory
         DefaultHttpDataSource.Factory httpDataSourceFactory = new DefaultHttpDataSource.Factory()
@@ -374,9 +434,22 @@ public class PlayerActivity extends Activity {
     private void releasePlayer() {
         retryHandler.removeCallbacksAndMessages(null);
         if (player != null) {
+            if (playerListener != null) {
+                player.removeListener(playerListener);
+            }
             player.stop();
             player.release();
             player = null;
+        }
+        // Release WiFi lock
+        if (wifiLock != null && wifiLock.isHeld()) {
+            wifiLock.release();
+            Log.d(TAG, "WiFi lock released");
+        }
+        // Abandon audio focus
+        if (audioManager != null && audioFocusChangeListener != null) {
+            audioManager.abandonAudioFocus(audioFocusChangeListener);
+            Log.d(TAG, "Audio focus abandoned");
         }
     }
 }
