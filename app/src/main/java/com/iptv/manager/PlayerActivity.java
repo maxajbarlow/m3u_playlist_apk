@@ -217,6 +217,17 @@ public class PlayerActivity extends Activity {
                     case Player.STATE_BUFFERING:
                         loadingSpinner.setVisibility(View.VISIBLE);
                         errorText.setVisibility(View.GONE);
+                        // Live edge optimization: if too far behind live, skip to live edge
+                        if (player.isCurrentMediaItemLive()) {
+                            long liveOffset = player.getCurrentLiveOffset();
+                            if (liveOffset > 10_000) { // more than 10s behind
+                                Log.w(TAG, "Live offset " + liveOffset + "ms — seeking to live edge");
+                                reportDebug("player", "Seeking to live edge",
+                                        "channel", streamName,
+                                        "liveOffsetMs", String.valueOf(liveOffset));
+                                player.seekToDefaultPosition();
+                            }
+                        }
                         reportDebug("player", "Buffering", "channel", streamName);
                         break;
                     case Player.STATE_READY:
@@ -309,7 +320,11 @@ public class PlayerActivity extends Activity {
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
                 .setLiveConfiguration(
                         new MediaItem.LiveConfiguration.Builder()
-                                .setMaxPlaybackSpeed(1.04f)
+                                .setTargetOffsetMs(3_000)    // stay 3s behind live edge
+                                .setMinOffsetMs(1_000)       // never closer than 1s
+                                .setMaxOffsetMs(8_000)       // if >8s behind, seek to live
+                                .setMinPlaybackSpeed(1.0f)   // never slow down
+                                .setMaxPlaybackSpeed(1.04f)  // gentle catch-up only
                                 .build()
                 )
                 .build();
