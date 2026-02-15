@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Message;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,6 +23,15 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Main activity that wraps the IPTV Manager web app in a fullscreen WebView.
@@ -98,6 +108,103 @@ public class MainActivity extends Activity {
                 if (fallbackUrl != null) intent.putExtra(PlayerActivity.EXTRA_FALLBACK_URL, fallbackUrl);
                 startActivity(intent);
             });
+        }
+
+        /**
+         * Native speed test — tests server connectivity directly from the device.
+         * Takes a JSON array of servers: [{"server_id":1,"hostname":"...","username":"...","password":"..."},...]
+         * Returns results via window._nativeSpeedTestResult(jsonStr) callback.
+         */
+        @JavascriptInterface
+        public void speedTestNative(String serversJson) {
+            new Thread(() -> {
+                try {
+                    JSONArray servers = new JSONArray(serversJson);
+                    JSONArray results = new JSONArray();
+                    int threadCount = Math.min(servers.length(), 4);
+                    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+                    CountDownLatch latch = new CountDownLatch(servers.length());
+
+                    // Pre-populate results array with placeholders to maintain order
+                    JSONObject[] resultSlots = new JSONObject[servers.length()];
+
+                    for (int i = 0; i < servers.length(); i++) {
+                        final int index = i;
+                        final JSONObject server = servers.getJSONObject(i);
+                        executor.submit(() -> {
+                            JSONObject result = new JSONObject();
+                            try {
+                                int serverId = server.optInt("server_id", 0);
+                                String hostname = server.getString("hostname");
+                                String username = server.getString("username");
+                                String password = server.getString("password");
+
+                                // Use HTTPS for cf. prefixed servers
+                                String proto = hostname.startsWith("cf.") ? "https" : "http";
+                                String testUrl = proto + "://" + hostname +
+                                        "/player_api.php?username=" + username + "&password=" + password;
+
+                                result.put("server_id", serverId);
+                                result.put("hostname", hostname);
+
+                                long startTime = System.currentTimeMillis();
+                                HttpURLConnection conn = (HttpURLConnection) new URL(testUrl).openConnection();
+                                conn.setRequestMethod("HEAD");
+                                conn.setConnectTimeout(5000);
+                                conn.setReadTimeout(10000);
+                                conn.setInstanceFollowRedirects(true);
+
+                                int responseCode = conn.getResponseCode();
+                                long latency = System.currentTimeMillis() - startTime;
+                                conn.disconnect();
+
+                                if (responseCode >= 200 && responseCode < 400) {
+                                    result.put("latency_ms", latency);
+                                    result.put("status", "online");
+                                } else {
+                                    result.put("latency_ms", JSONObject.NULL);
+                                    result.put("status", "offline");
+                                }
+                            } catch (Exception e) {
+                                try {
+                                    result.put("latency_ms", JSONObject.NULL);
+                                    result.put("status", "offline");
+                                } catch (Exception ignored) {}
+                                Log.w("SpeedTest", "Server test failed: " + e.getMessage());
+                            }
+                            resultSlots[index] = result;
+                            latch.countDown();
+                        });
+                    }
+
+                    latch.await();
+                    executor.shutdown();
+
+                    // Collect results in original order
+                    for (JSONObject r : resultSlots) {
+                        if (r != null) results.put(r);
+                    }
+
+                    final String jsonResult = results.toString();
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            webView.evaluateJavascript(
+                                    "javascript:window._nativeSpeedTestResult('" +
+                                            jsonResult.replace("'", "\\'") + "')",
+                                    null
+                            );
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.e("SpeedTest", "Speed test error", e);
+                    runOnUiThread(() -> {
+                        if (webView != null) {
+                            webView.evaluateJavascript(
+                                    "javascript:window._nativeSpeedTestResult('[]')", null);
+                        }
+                    });
+                }
+            }).start();
         }
     }
 
