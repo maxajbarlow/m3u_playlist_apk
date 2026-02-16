@@ -193,12 +193,10 @@ public class PlayerActivity extends Activity {
                 .setTargetBufferBytes(30 * 1024 * 1024) // 30MB cap (was ~60MB default)
                 .build();
 
-        // 2C. DefaultTrackSelector — constrain for Fire TV Stick hardware
+        // 2C. DefaultTrackSelector — codec preferences for Fire TV Stick
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
         trackSelector.setParameters(
                 trackSelector.buildUponParameters()
-                        .setMaxVideoSize(1920, 1080)     // Cap at 1080p
-                        .setMaxVideoBitrate(8_000_000)   // Cap at 8 Mbps
                         .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H264) // Prefer H.264
                         .setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC)  // Prefer AAC
                         .build()
