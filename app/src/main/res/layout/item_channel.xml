@@ -6,7 +6,7 @@
     android:focusableInTouchMode="true"
     android:descendantFocusability="blocksDescendants"
     android:background="@drawable/channel_item_focus"
-    android:minHeight="60dp">
+    android:minHeight="48dp">
 
     <!-- Main row content -->
     <LinearLayout
@@ -14,10 +14,10 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp">
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp">
 
         <!-- Channel info (left side) -->
         <LinearLayout
@@ -26,21 +26,45 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/channel_name"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="#EAEAFF"
-                android:textSize="18sp"
-                android:singleLine="true"
-                android:ellipsize="end" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/channel_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#EAEAFF"
+                    android:textSize="14sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:layout_weight="1" />
+
+                <!-- Group badge (shown in All/search mode) -->
+                <TextView
+                    android:id="@+id/channel_group_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#606080"
+                    android:textSize="9sp"
+                    android:background="@drawable/badge_background"
+                    android:paddingStart="5dp"
+                    android:paddingEnd="5dp"
+                    android:paddingTop="1dp"
+                    android:paddingBottom="1dp"
+                    android:layout_marginStart="8dp"
+                    android:singleLine="true"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/channel_epg"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="#606080"
-                android:textSize="12sp"
+                android:textSize="10sp"
                 android:singleLine="true"
                 android:ellipsize="end"
                 android:layout_marginTop="1dp"
@@ -50,9 +74,9 @@
         <!-- Favourite star (always visible, muted when not favourite) -->
         <ImageView
             android:id="@+id/channel_star"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="12dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="10dp"
             android:src="@drawable/ic_star"
             android:contentDescription="Favourite" />
     </LinearLayout>
@@ -61,7 +85,7 @@
     <View
         android:id="@+id/epg_progress"
         android:layout_width="0dp"
-        android:layout_height="3dp"
+        android:layout_height="2dp"
         android:layout_gravity="bottom"
         android:background="@drawable/epg_progress_gradient"
         android:visibility="gone" />

@@ -4,25 +4,25 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
-    android:layout_marginStart="6dp"
-    android:layout_marginEnd="6dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp"
+    android:layout_marginStart="5dp"
+    android:layout_marginEnd="5dp"
     android:layout_marginTop="1dp"
     android:layout_marginBottom="1dp"
-    android:minHeight="36dp"
+    android:minHeight="30dp"
     android:focusable="true"
     android:focusableInTouchMode="true"
     android:background="@drawable/sidebar_item_focus">
 
     <ImageView
         android:id="@+id/sidebar_icon"
-        android:layout_width="16dp"
-        android:layout_height="16dp"
+        android:layout_width="14dp"
+        android:layout_height="14dp"
         android:tint="#606080"
-        android:layout_marginEnd="8dp" />
+        android:layout_marginEnd="7dp" />
 
     <TextView
         android:id="@+id/sidebar_label"
@@ -30,7 +30,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:textColor="#a0a0c0"
-        android:textSize="14sp"
+        android:textSize="12sp"
         android:singleLine="true"
         android:ellipsize="end" />
 
@@ -39,13 +39,13 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="#606080"
-        android:textSize="11sp"
+        android:textSize="10sp"
         android:background="@drawable/badge_background"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp"
-        android:minWidth="20dp"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:paddingTop="1dp"
+        android:paddingBottom="1dp"
+        android:minWidth="18dp"
         android:gravity="center"
         android:visibility="gone" />
 

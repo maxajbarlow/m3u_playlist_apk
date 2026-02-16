@@ -46,6 +46,8 @@ public class MainActivity extends Activity {
     private SidebarAdapter sidebarAdapter;
     private RecyclerView channelRecycler;
     private ChannelAdapter channelAdapter;
+    private TextView headerTitle;
+    private TextView headerCount;
     private LinearLayout emptyState;
     private TextView emptyTitle;
     private TextView emptySubtitle;
@@ -91,6 +93,8 @@ public class MainActivity extends Activity {
         channelRecycler.setLayoutManager(new LinearLayoutManager(this));
         channelRecycler.setAdapter(channelAdapter);
 
+        headerTitle = findViewById(R.id.header_title);
+        headerCount = findViewById(R.id.header_count);
         emptyState = findViewById(R.id.empty_state);
         emptyTitle = findViewById(R.id.empty_title);
         emptySubtitle = findViewById(R.id.empty_subtitle);
@@ -117,7 +121,7 @@ public class MainActivity extends Activity {
         // Sidebar search
         sidebarAdapter.setSearchListener(query -> {
             channelAdapter.setSearch(query);
-            updateEmptyState();
+            updateEmptyState(); // also updates content header
         });
 
         // Channel actions
@@ -243,9 +247,9 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // Build CSV of channel IDs (max 50 at a time for visible)
+        // Build CSV of channel IDs (batch up to 200)
         StringBuilder sb = new StringBuilder();
-        int limit = Math.min(visible.size(), 50);
+        int limit = Math.min(visible.size(), 200);
         for (int i = 0; i < limit; i++) {
             if (i > 0) sb.append(",");
             sb.append(visible.get(i).channelId);
@@ -614,6 +618,34 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ── Content Header ────────────────────────────────────────
+
+    private void updateContentHeader() {
+        String filter = channelAdapter.getCurrentFilter();
+        String title;
+        switch (filter) {
+            case "favourites":
+                title = "Favourites";
+                break;
+            case "all":
+                title = "All Channels";
+                break;
+            case "recent":
+                title = "Recently Played";
+                break;
+            case "group":
+                String group = channelAdapter.getCurrentGroup();
+                title = group != null ? group : "Group";
+                break;
+            default:
+                title = "Channels";
+                break;
+        }
+        headerTitle.setText(title);
+        int count = channelAdapter.getItemCount();
+        headerCount.setText(count + " channel" + (count != 1 ? "s" : ""));
+    }
+
     // ── UI Helpers ───────────────────────────────────────────
 
     private void showLoading(boolean show) {
@@ -630,6 +662,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateEmptyState() {
+        updateContentHeader();
         if (channelAdapter.getItemCount() == 0) {
             String filter = channelAdapter.getCurrentFilter();
             switch (filter) {

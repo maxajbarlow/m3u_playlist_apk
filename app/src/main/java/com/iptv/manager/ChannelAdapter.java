@@ -209,13 +209,31 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ChannelV
 
         holder.channelName.setText(ch.name);
 
-        // EPG text
+        // Group badge — show in "all" or search mode
+        boolean showBadge = ("all".equals(currentFilter) || !searchQuery.isEmpty())
+                && ch.group != null && !ch.group.isEmpty();
+        if (showBadge) {
+            holder.channelGroupBadge.setText(ch.group);
+            holder.channelGroupBadge.setVisibility(View.VISIBLE);
+        } else {
+            holder.channelGroupBadge.setVisibility(View.GONE);
+        }
+
+        // EPG text with countdown
         if (ch.epgNowTitle != null && !ch.epgNowTitle.isEmpty()) {
-            String epgText = ch.epgNowTitle;
-            if (ch.epgNextTitle != null && !ch.epgNextTitle.isEmpty()) {
-                epgText += "  ·  Next: " + ch.epgNextTitle;
+            StringBuilder epgText = new StringBuilder("Now: ");
+            epgText.append(ch.epgNowTitle);
+            // Add countdown
+            if (ch.epgNowEnd > 0) {
+                long minsLeft = (ch.epgNowEnd - System.currentTimeMillis() / 1000) / 60;
+                if (minsLeft > 0) {
+                    epgText.append(" \u2022 ").append(minsLeft).append("m left");
+                }
             }
-            holder.channelEpg.setText(epgText);
+            if (ch.epgNextTitle != null && !ch.epgNextTitle.isEmpty()) {
+                epgText.append(" \u2014 Next: ").append(ch.epgNextTitle);
+            }
+            holder.channelEpg.setText(epgText.toString());
             holder.channelEpg.setVisibility(View.VISIBLE);
         } else {
             holder.channelEpg.setVisibility(View.GONE);
@@ -288,6 +306,7 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ChannelV
     static class ChannelViewHolder extends RecyclerView.ViewHolder {
         final TextView channelName;
         final TextView channelEpg;
+        final TextView channelGroupBadge;
         final ImageView channelStar;
         final View epgProgress;
 
@@ -295,6 +314,7 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ChannelV
             super(v);
             channelName = v.findViewById(R.id.channel_name);
             channelEpg = v.findViewById(R.id.channel_epg);
+            channelGroupBadge = v.findViewById(R.id.channel_group_badge);
             channelStar = v.findViewById(R.id.channel_star);
             epgProgress = v.findViewById(R.id.epg_progress);
         }

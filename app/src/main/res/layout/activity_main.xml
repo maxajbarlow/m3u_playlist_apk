@@ -8,62 +8,100 @@
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/sidebar_recycler"
-        android:layout_width="240dp"
+        android:layout_width="220dp"
         android:layout_height="match_parent"
         android:background="#0d0d1a"
         android:clipToPadding="false"
         android:paddingTop="4dp"
         android:paddingBottom="4dp" />
 
-    <FrameLayout
+    <!-- Main content area -->
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:orientation="vertical">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/channel_recycler"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp" />
-
-        <!-- Empty state -->
+        <!-- Content header: view title + channel count -->
         <LinearLayout
-            android:id="@+id/empty_state"
-            android:layout_width="wrap_content"
+            android:id="@+id/content_header"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:visibility="gone">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="6dp">
 
             <TextView
-                android:id="@+id/empty_title"
+                android:id="@+id/header_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/empty_no_channels"
-                android:textColor="#A0A0C0"
-                android:textSize="18sp" />
+                android:text="Favourites"
+                android:textColor="#EAEAFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/empty_subtitle"
+                android:id="@+id/header_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/empty_import_hint"
+                android:layout_marginStart="10dp"
                 android:textColor="#606080"
-                android:textSize="14sp"
-                android:layout_marginTop="8dp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Loading spinner -->
-        <ProgressBar
-            android:id="@+id/loading_spinner"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center"
-            android:visibility="gone"
-            android:indeterminateTint="#6C63FF" />
-    </FrameLayout>
+        <!-- Channel list + empty/loading states -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/channel_recycler"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="8dp" />
+
+            <!-- Empty state -->
+            <LinearLayout
+                android:id="@+id/empty_state"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/empty_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/empty_no_channels"
+                    android:textColor="#A0A0C0"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/empty_subtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/empty_import_hint"
+                    android:textColor="#606080"
+                    android:textSize="12sp"
+                    android:layout_marginTop="6dp" />
+            </LinearLayout>
+
+            <!-- Loading spinner -->
+            <ProgressBar
+                android:id="@+id/loading_spinner"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                android:indeterminateTint="#6C63FF" />
+        </FrameLayout>
+    </LinearLayout>
 
 </LinearLayout>
