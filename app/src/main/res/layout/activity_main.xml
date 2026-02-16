@@ -8,7 +8,7 @@
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/sidebar_recycler"
-        android:layout_width="280dp"
+        android:layout_width="320dp"
         android:layout_height="match_parent"
         android:background="#0d0d1a"
         android:clipToPadding="false"
