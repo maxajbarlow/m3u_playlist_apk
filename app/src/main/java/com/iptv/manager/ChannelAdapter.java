@@ -209,30 +209,56 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ChannelV
 
         holder.channelName.setText(ch.name);
 
-        // EPG
+        // EPG text
         if (ch.epgNowTitle != null && !ch.epgNowTitle.isEmpty()) {
-            holder.channelEpg.setText(ch.epgNowTitle);
+            String epgText = ch.epgNowTitle;
+            if (ch.epgNextTitle != null && !ch.epgNextTitle.isEmpty()) {
+                epgText += "  ·  Next: " + ch.epgNextTitle;
+            }
+            holder.channelEpg.setText(epgText);
             holder.channelEpg.setVisibility(View.VISIBLE);
         } else {
             holder.channelEpg.setVisibility(View.GONE);
         }
 
-        // Star
-        if (ch.favourite) {
-            holder.channelStar.setImageResource(R.drawable.ic_star_filled);
-            holder.channelStar.setVisibility(View.VISIBLE);
+        // EPG progress bar
+        float progress = ch.getEpgProgress();
+        if (progress >= 0) {
+            holder.epgProgress.setVisibility(View.VISIBLE);
+            // Set width as percentage of parent
+            holder.epgProgress.post(() -> {
+                int parentWidth = ((View) holder.epgProgress.getParent()).getWidth();
+                ViewGroup.LayoutParams lp = holder.epgProgress.getLayoutParams();
+                lp.width = (int) (parentWidth * progress);
+                holder.epgProgress.setLayoutParams(lp);
+            });
         } else {
-            holder.channelStar.setVisibility(View.GONE);
+            holder.epgProgress.setVisibility(View.GONE);
         }
 
-        // Focus visual
+        // Star — always visible, gold if favourite, muted if not
+        if (ch.favourite) {
+            holder.channelStar.setImageResource(R.drawable.ic_star_filled);
+            holder.channelStar.setColorFilter(0xFFFFC107); // gold
+            holder.channelStar.setAlpha(1.0f);
+        } else {
+            holder.channelStar.setImageResource(R.drawable.ic_star);
+            holder.channelStar.setColorFilter(0xFF606080); // muted
+            holder.channelStar.setAlpha(0.5f);
+        }
+
+        // Focus visual feedback
         holder.itemView.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 holder.channelName.setTextColor(0xFFFFFFFF);
-                holder.channelEpg.setTextColor(0xFFEAEAFF);
+                holder.channelEpg.setTextColor(0xFFA0A0C0);
+                holder.channelStar.setAlpha(1.0f);
             } else {
                 holder.channelName.setTextColor(0xFFEAEAFF);
-                holder.channelEpg.setTextColor(0xFFA0A0C0);
+                holder.channelEpg.setTextColor(0xFF606080);
+                if (!ch.favourite) {
+                    holder.channelStar.setAlpha(0.5f);
+                }
             }
         });
 
@@ -263,12 +289,14 @@ public class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.ChannelV
         final TextView channelName;
         final TextView channelEpg;
         final ImageView channelStar;
+        final View epgProgress;
 
         ChannelViewHolder(View v) {
             super(v);
             channelName = v.findViewById(R.id.channel_name);
             channelEpg = v.findViewById(R.id.channel_epg);
             channelStar = v.findViewById(R.id.channel_star);
+            epgProgress = v.findViewById(R.id.epg_progress);
         }
     }
 }
