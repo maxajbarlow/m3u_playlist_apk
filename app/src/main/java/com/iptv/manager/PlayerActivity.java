@@ -193,12 +193,12 @@ public class PlayerActivity extends Activity {
                 .setTargetBufferBytes(30 * 1024 * 1024) // 30MB cap (was ~60MB default)
                 .build();
 
-        // 2C. DefaultTrackSelector — codec preferences for Fire TV Stick
+        // 2C. DefaultTrackSelector — prefer HEVC (50% more efficient than H.264)
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
         trackSelector.setParameters(
                 trackSelector.buildUponParameters()
-                        .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H264) // Prefer H.264
-                        .setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC)  // Prefer AAC
+                        .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H265, MimeTypes.VIDEO_H264)
+                        .setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC)
                         .build()
         );
 
