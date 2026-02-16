@@ -7,6 +7,8 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -24,25 +26,37 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
  * Main activity that wraps the IPTV Manager web app in a fullscreen WebView.
- * Optimized for Android TV with D-pad navigation and in-app video playback.
+ * Optimized for Android TV with native sidebar and D-pad navigation.
  */
 public class MainActivity extends Activity {
+
+    private static final String TAG = "MainActivity";
 
     private WebView webView;
     private FrameLayout fullscreenContainer;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
+
+    // Native sidebar
+    private RecyclerView sidebarRecycler;
+    private SidebarAdapter sidebarAdapter;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     @SuppressLint("SetJavaScriptEnabled")
@@ -62,6 +76,33 @@ public class MainActivity extends Activity {
         webView = findViewById(R.id.webview);
         fullscreenContainer = findViewById(R.id.fullscreen_container);
 
+        // Set up native sidebar
+        sidebarRecycler = findViewById(R.id.sidebar_recycler);
+        sidebarAdapter = new SidebarAdapter();
+        sidebarRecycler.setLayoutManager(new LinearLayoutManager(this));
+        sidebarRecycler.setAdapter(sidebarAdapter);
+        sidebarAdapter.setLoadingState();
+
+        // Sidebar action listener
+        sidebarAdapter.setActionListener(new SidebarAdapter.OnSidebarActionListener() {
+            @Override
+            public void onItemClick(SidebarAdapter.SidebarItem item) {
+                handleSidebarClick(item);
+            }
+
+            @Override
+            public void onFocusTransferToWebView() {
+                webView.requestFocus();
+                webView.evaluateJavascript("javascript:window.tvFocusFirstChannel && window.tvFocusFirstChannel()", null);
+            }
+        });
+
+        // Sidebar search listener
+        sidebarAdapter.setSearchListener(query -> {
+            String escaped = query.replace("\\", "\\\\").replace("'", "\\'");
+            webView.evaluateJavascript("javascript:window.tvSearch && window.tvSearch('" + escaped + "')", null);
+        });
+
         configureWebView();
 
         // Expose native player to JavaScript: window.Android.playStream(url, name)
@@ -76,8 +117,55 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * Handle sidebar item click — calls appropriate JS bridge function.
+     */
+    private void handleSidebarClick(SidebarAdapter.SidebarItem item) {
+        if (item.actionType == null) return;
+
+        String js = null;
+        switch (item.actionType) {
+            case "all":
+                js = "window.tvNavigateTo('all')";
+                break;
+            case "favourites":
+                js = "window.tvNavigateTo('favourites')";
+                break;
+            case "recent":
+                js = "window.tvNavigateTo('recent')";
+                break;
+            case "group":
+                String groupName = item.actionData.replace("\\", "\\\\").replace("'", "\\'");
+                js = "window.tvNavigateTo('group','" + groupName + "')";
+                break;
+            case "server":
+                js = "window.tvOpenServerSelector()";
+                break;
+            case "credential":
+                js = "window.tvOpenCredentialSelector()";
+                break;
+            case "manage":
+                js = "window.tvOpenManage()";
+                break;
+            case "password":
+                js = "window.tvChangePassword()";
+                break;
+            case "admin":
+                js = "window.tvOpenAdmin()";
+                break;
+            case "logout":
+                js = "window.tvLogout()";
+                break;
+        }
+
+        if (js != null) {
+            webView.evaluateJavascript("javascript:" + js, null);
+        }
+    }
+
+    /**
      * JavaScript interface exposed as window.Android in the WebView.
-     * Allows the web app to launch the native ExoPlayer for HLS streams.
+     * Allows the web app to launch the native ExoPlayer for HLS streams
+     * and communicate sidebar data.
      */
     private class WebAppInterface {
         @JavascriptInterface
@@ -111,9 +199,151 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * Called by web app when sidebar data is ready (after login, data changes, etc).
+         * JSON format: { allCount, favCount, recentCount, groups: [{name, count}],
+         *                serverLabel, credentialLabel, isAdmin, activeGroup }
+         */
+        @JavascriptInterface
+        public void onMenuDataReady(String jsonStr) {
+            runOnUiThread(() -> {
+                try {
+                    JSONObject data = new JSONObject(jsonStr);
+                    List<SidebarAdapter.SidebarItem> items = new ArrayList<>();
+
+                    String active = data.optString("activeGroup", "favourites");
+
+                    // All Channels
+                    items.add(SidebarAdapter.SidebarItem.item(
+                            R.drawable.ic_all_channels, "All Channels",
+                            String.valueOf(data.optInt("allCount", 0)),
+                            "all", null,
+                            "all".equals(active)
+                    ));
+
+                    // Favourites
+                    int favCount = data.optInt("favCount", 0);
+                    if (favCount > 0) {
+                        items.add(SidebarAdapter.SidebarItem.item(
+                                R.drawable.ic_star, "Favourites",
+                                String.valueOf(favCount),
+                                "favourites", null,
+                                "favourites".equals(active)
+                        ));
+                    }
+
+                    // Recently Played
+                    int recentCount = data.optInt("recentCount", 0);
+                    if (recentCount > 0) {
+                        items.add(SidebarAdapter.SidebarItem.item(
+                                R.drawable.ic_history, "Recently Played",
+                                String.valueOf(recentCount),
+                                "recent", null,
+                                "recent".equals(active)
+                        ));
+                    }
+
+                    // Divider
+                    items.add(SidebarAdapter.SidebarItem.divider());
+
+                    // Groups
+                    JSONArray groups = data.optJSONArray("groups");
+                    if (groups != null) {
+                        for (int i = 0; i < groups.length(); i++) {
+                            JSONObject g = groups.getJSONObject(i);
+                            String name = g.getString("name");
+                            int count = g.getInt("count");
+                            items.add(SidebarAdapter.SidebarItem.item(
+                                    R.drawable.ic_collection, name,
+                                    String.valueOf(count),
+                                    "group", name,
+                                    name.equals(active)
+                            ));
+                        }
+                    }
+
+                    // Divider before settings
+                    items.add(SidebarAdapter.SidebarItem.divider());
+
+                    // Server selector
+                    String serverLabel = data.optString("serverLabel", "No Server");
+                    items.add(SidebarAdapter.SidebarItem.item(
+                            R.drawable.ic_server, "Server: " + truncate(serverLabel, 15),
+                            null, "server", null, false
+                    ));
+
+                    // Credential selector
+                    String credLabel = data.optString("credentialLabel", "No Credential");
+                    items.add(SidebarAdapter.SidebarItem.item(
+                            R.drawable.ic_user, "User: " + truncate(credLabel, 15),
+                            null, "credential", null, false
+                    ));
+
+                    // Divider
+                    items.add(SidebarAdapter.SidebarItem.divider());
+
+                    // Manage
+                    items.add(SidebarAdapter.SidebarItem.item(
+                            R.drawable.ic_settings, "Manage",
+                            null, "manage", null, false
+                    ));
+
+                    // Change Password
+                    items.add(SidebarAdapter.SidebarItem.item(
+                            R.drawable.ic_key, "Change Password",
+                            null, "password", null, false
+                    ));
+
+                    // Admin Panel (conditional)
+                    if (data.optBoolean("isAdmin", false)) {
+                        items.add(SidebarAdapter.SidebarItem.item(
+                                R.drawable.ic_admin, "Admin Panel",
+                                null, "admin", null, false
+                        ));
+                    }
+
+                    // Logout
+                    items.add(SidebarAdapter.SidebarItem.item(
+                            R.drawable.ic_logout, "Logout",
+                            null, "logout", null, false
+                    ));
+
+                    sidebarAdapter.updateItems(items);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error parsing menu data", e);
+                }
+            });
+        }
+
+        /**
+         * Called by WebView when D-pad Left is pressed at the edge of content.
+         * Transfers focus back to the native sidebar.
+         */
+        @JavascriptInterface
+        public void onWebViewEdge(String direction) {
+            runOnUiThread(() -> {
+                if ("left".equals(direction)) {
+                    int pos = sidebarAdapter.findSelectedOrFirstPosition();
+                    sidebarRecycler.scrollToPosition(pos);
+                    RecyclerView.ViewHolder vh = sidebarRecycler.findViewHolderForAdapterPosition(pos);
+                    if (vh != null) {
+                        vh.itemView.requestFocus();
+                    } else {
+                        // ViewHolder not yet laid out, wait for layout
+                        sidebarRecycler.post(() -> {
+                            RecyclerView.ViewHolder vh2 = sidebarRecycler.findViewHolderForAdapterPosition(pos);
+                            if (vh2 != null) {
+                                vh2.itemView.requestFocus();
+                            } else {
+                                sidebarRecycler.requestFocus();
+                            }
+                        });
+                    }
+                }
+            });
+        }
+
+        /**
          * Native speed test — tests server connectivity directly from the device.
-         * Takes a JSON array of servers: [{"server_id":1,"hostname":"...","username":"...","password":"..."},...]
-         * Returns results via window._nativeSpeedTestResult(jsonStr) callback.
          */
         @JavascriptInterface
         public void speedTestNative(String serversJson) {
@@ -125,7 +355,6 @@ public class MainActivity extends Activity {
                     ExecutorService executor = Executors.newFixedThreadPool(threadCount);
                     CountDownLatch latch = new CountDownLatch(servers.length());
 
-                    // Pre-populate results array with placeholders to maintain order
                     JSONObject[] resultSlots = new JSONObject[servers.length()];
 
                     for (int i = 0; i < servers.length(); i++) {
@@ -139,7 +368,6 @@ public class MainActivity extends Activity {
                                 String username = server.getString("username");
                                 String password = server.getString("password");
 
-                                // Use HTTPS for cf. prefixed servers
                                 String proto = hostname.startsWith("cf.") ? "https" : "http";
                                 String testUrl = proto + "://" + hostname +
                                         "/player_api.php?username=" + username + "&password=" + password;
@@ -180,7 +408,6 @@ public class MainActivity extends Activity {
                     latch.await();
                     executor.shutdown();
 
-                    // Collect results in original order
                     for (JSONObject r : resultSlots) {
                         if (r != null) results.put(r);
                     }
@@ -206,6 +433,11 @@ public class MainActivity extends Activity {
                 }
             }).start();
         }
+    }
+
+    private static String truncate(String text, int maxLen) {
+        if (text == null) return "";
+        return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -257,14 +489,12 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                // Keep all navigation inside the WebView
                 return false;
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // Keep all navigation inside the WebView
                 return false;
             }
 
@@ -286,7 +516,6 @@ public class MainActivity extends Activity {
 
             @Override
             public void onShowCustomView(View view, CustomViewCallback callback) {
-                // HTML5 video entering fullscreen
                 if (customView != null) {
                     callback.onCustomViewHidden();
                     return;
@@ -295,8 +524,9 @@ public class MainActivity extends Activity {
                 customView = view;
                 customViewCallback = callback;
 
-                // Hide WebView and show fullscreen video container
+                // Hide WebView and sidebar, show fullscreen video container
                 webView.setVisibility(View.GONE);
+                sidebarRecycler.setVisibility(View.GONE);
                 fullscreenContainer.setVisibility(View.VISIBLE);
                 fullscreenContainer.addView(view, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -308,7 +538,6 @@ public class MainActivity extends Activity {
 
             @Override
             public void onHideCustomView() {
-                // HTML5 video exiting fullscreen
                 if (customView == null) {
                     return;
                 }
@@ -316,6 +545,7 @@ public class MainActivity extends Activity {
                 fullscreenContainer.removeView(customView);
                 fullscreenContainer.setVisibility(View.GONE);
                 webView.setVisibility(View.VISIBLE);
+                sidebarRecycler.setVisibility(View.VISIBLE);
 
                 if (customViewCallback != null) {
                     customViewCallback.onCustomViewHidden();
@@ -329,19 +559,14 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
-                // Handle window.open() - load new URLs in the same WebView
-                // This prevents player.html from opening in an external browser
                 WebView.HitTestResult result = view.getHitTestResult();
                 String url = result.getExtra();
 
                 if (url != null) {
-                    // Direct URL from hit test - load it in the same WebView
                     view.loadUrl(url);
                     return false;
                 }
 
-                // For JavaScript-initiated window.open(), create a temporary WebView
-                // to capture the URL and load it in the main WebView
                 WebView tempWebView = new WebView(MainActivity.this);
                 tempWebView.setWebViewClient(new WebViewClient() {
                     @Override
@@ -376,7 +601,6 @@ public class MainActivity extends Activity {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition,
                                         String mimetype, long contentLength) {
-                // If it's an M3U file, try to open with VLC or other media player
                 if (url.endsWith(".m3u") || url.endsWith(".m3u8") ||
                         "application/x-mpegurl".equals(mimetype) ||
                         "audio/x-mpegurl".equals(mimetype) ||
@@ -387,11 +611,9 @@ public class MainActivity extends Activity {
                         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         startActivity(intent);
                     } catch (Exception e) {
-                        // If no app handles the intent, try loading in WebView
                         webView.loadUrl(url);
                     }
                 } else {
-                    // For other downloads, attempt to open via intent
                     try {
                         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                         startActivity(intent);
@@ -444,8 +666,15 @@ public class MainActivity extends Activity {
             fullscreenContainer.removeView(customView);
             fullscreenContainer.setVisibility(View.GONE);
             webView.setVisibility(View.VISIBLE);
+            sidebarRecycler.setVisibility(View.VISIBLE);
             customView = null;
             customViewCallback = null;
+            return;
+        }
+
+        // If WebView has focus, transfer to sidebar
+        if (webView.hasFocus()) {
+            webView.evaluateJavascript("javascript:window.tvCheckLeftEdge && window.tvCheckLeftEdge()", null);
             return;
         }
 
@@ -462,7 +691,6 @@ public class MainActivity extends Activity {
      */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // Let the WebView handle D-pad navigation natively
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             onBackPressed();
             return true;
@@ -475,6 +703,13 @@ public class MainActivity extends Activity {
         super.onResume();
         webView.onResume();
         hideSystemUI();
+
+        // Restore focus after returning from player
+        mainHandler.postDelayed(() -> {
+            if (webView != null) {
+                webView.evaluateJavascript("javascript:window.tvRestoreFocus && window.tvRestoreFocus()", null);
+            }
+        }, 300);
     }
 
     @Override

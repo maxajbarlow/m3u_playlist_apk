@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Focused state -->
+    <item android:state_focused="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#2a2a4e" />
+                    <corners android:radius="10dp" />
+                    <stroke android:width="2dp" android:color="#00d4ff" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Selected (active group) state -->
+    <item android:state_selected="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#1c1c3a" />
+                    <corners android:radius="10dp" />
+                </shape>
+            </item>
+            <item android:width="3dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="#6c63ff" />
+                    <corners android:topLeftRadius="10dp" android:bottomLeftRadius="10dp" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Default state -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners android:radius="10dp" />
+        </shape>
+    </item>
+</selector>
