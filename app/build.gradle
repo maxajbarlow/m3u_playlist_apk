@@ -10,8 +10,8 @@ android {
         applicationId "com.iptv.manager"
         minSdk 21
         targetSdk 34
-        versionCode 24
-        versionName "3.9.3"
+        versionCode 25
+        versionName "3.9.4"
     }
 
     signingConfigs {

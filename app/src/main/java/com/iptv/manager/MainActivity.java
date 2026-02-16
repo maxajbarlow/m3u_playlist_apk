@@ -487,9 +487,18 @@ public class MainActivity extends Activity {
         String proto = server.startsWith("cf.") ? "https" : "http";
         String directUrl = proto + "://" + server + "/live/" + cred.username + "/" + cred.password + "/" + channel.channelId + ".m3u8";
 
-        // Build proxy fallback URL
+        // Build proxy fallback URL: /api/proxy/hls?url=...&token=...&channel_name=...
         String baseUrl = tokenManager.getBaseUrl();
-        String fallbackUrl = baseUrl + "/proxy/" + channel.channelId + ".m3u8";
+        String token = tokenManager.getToken();
+        String fallbackUrl;
+        try {
+            fallbackUrl = baseUrl + "/api/proxy/hls?url="
+                    + java.net.URLEncoder.encode(directUrl, "UTF-8")
+                    + "&token=" + java.net.URLEncoder.encode(token, "UTF-8")
+                    + "&channel_name=" + java.net.URLEncoder.encode(channel.name, "UTF-8");
+        } catch (Exception e) {
+            fallbackUrl = baseUrl + "/api/proxy/hls?url=" + directUrl + "&token=" + token;
+        }
 
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.putExtra(PlayerActivity.EXTRA_URL, directUrl);
