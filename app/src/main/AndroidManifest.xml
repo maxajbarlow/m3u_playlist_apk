@@ -29,26 +29,31 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
+        <!-- Login is now the launcher activity -->
         <activity
-            android:name=".MainActivity"
+            android:name=".LoginActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|screenLayout|smallestScreenSize"
             android:exported="true"
             android:screenOrientation="landscape"
             android:launchMode="singleTask">
 
-            <!-- Standard launcher intent (phones/tablets) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Leanback launcher intent (Android TV home screen) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
 
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|screenLayout|smallestScreenSize"
+            android:screenOrientation="landscape"
+            android:launchMode="singleTask" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

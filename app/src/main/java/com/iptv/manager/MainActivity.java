@@ -1,69 +1,71 @@
 package com.iptv.manager;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Message;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
-import android.webkit.CookieManager;
-import android.webkit.DownloadListener;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.iptv.manager.model.Channel;
+import com.iptv.manager.model.EpgEntry;
+import com.iptv.manager.model.ServerConfig;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.Map;
 
 /**
- * Main activity that wraps the IPTV Manager web app in a fullscreen WebView.
- * Optimized for Android TV with native sidebar and D-pad navigation.
+ * Main activity — fully native Android TV channel browser.
+ * No WebView. Uses RecyclerView for channels + native sidebar.
  */
 public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
+    private static final long EPG_REFRESH_INTERVAL = 60_000; // 60s
 
-    private WebView webView;
-    private FrameLayout fullscreenContainer;
-    private View customView;
-    private WebChromeClient.CustomViewCallback customViewCallback;
-
-    // Native sidebar
+    // UI
     private RecyclerView sidebarRecycler;
     private SidebarAdapter sidebarAdapter;
+    private RecyclerView channelRecycler;
+    private ChannelAdapter channelAdapter;
+    private LinearLayout emptyState;
+    private TextView emptyTitle;
+    private TextView emptySubtitle;
+    private ProgressBar loadingSpinner;
+
+    // Data
+    private TokenManager tokenManager;
+    private ApiClient apiClient;
+    private ServerConfig serverConfig;
+    private boolean isAdmin = false;
+    private int lastFocusedChannelPosition = 0;
+
+    // EPG refresh
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable epgRefreshRunnable = this::loadEpgForVisibleChannels;
 
     @Override
-    @SuppressLint("SetJavaScriptEnabled")
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Fullscreen immersive mode
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
@@ -73,17 +75,28 @@ public class MainActivity extends Activity {
 
         setContentView(R.layout.activity_main);
 
-        webView = findViewById(R.id.webview);
-        fullscreenContainer = findViewById(R.id.fullscreen_container);
+        tokenManager = new TokenManager(this);
+        apiClient = ApiClient.getInstance(tokenManager);
 
-        // Set up native sidebar
+        // Sidebar
         sidebarRecycler = findViewById(R.id.sidebar_recycler);
         sidebarAdapter = new SidebarAdapter();
         sidebarRecycler.setLayoutManager(new LinearLayoutManager(this));
         sidebarRecycler.setAdapter(sidebarAdapter);
         sidebarAdapter.setLoadingState();
 
-        // Sidebar action listener
+        // Channel list
+        channelRecycler = findViewById(R.id.channel_recycler);
+        channelAdapter = new ChannelAdapter();
+        channelRecycler.setLayoutManager(new LinearLayoutManager(this));
+        channelRecycler.setAdapter(channelAdapter);
+
+        emptyState = findViewById(R.id.empty_state);
+        emptyTitle = findViewById(R.id.empty_title);
+        emptySubtitle = findViewById(R.id.empty_subtitle);
+        loadingSpinner = findViewById(R.id.loading_spinner);
+
+        // Sidebar actions
         sidebarAdapter.setActionListener(new SidebarAdapter.OnSidebarActionListener() {
             @Override
             public void onItemClick(SidebarAdapter.SidebarItem item) {
@@ -92,346 +105,547 @@ public class MainActivity extends Activity {
 
             @Override
             public void onFocusTransferToWebView() {
-                webView.requestFocus();
-                webView.evaluateJavascript("javascript:window.tvFocusFirstChannel && window.tvFocusFirstChannel()", null);
+                // Transfer focus to channel list (replaces WebView)
+                if (channelAdapter.getItemCount() > 0) {
+                    channelRecycler.requestFocus();
+                    RecyclerView.ViewHolder vh = channelRecycler.findViewHolderForAdapterPosition(0);
+                    if (vh != null) vh.itemView.requestFocus();
+                }
             }
         });
 
-        // Sidebar search listener
+        // Sidebar search
         sidebarAdapter.setSearchListener(query -> {
-            String escaped = query.replace("\\", "\\\\").replace("'", "\\'");
-            webView.evaluateJavascript("javascript:window.tvSearch && window.tvSearch('" + escaped + "')", null);
+            channelAdapter.setSearch(query);
+            updateEmptyState();
         });
 
-        configureWebView();
+        // Channel actions
+        channelAdapter.setActionListener(new ChannelAdapter.OnChannelActionListener() {
+            @Override
+            public void onChannelClick(Channel channel) {
+                playChannel(channel);
+            }
 
-        // Expose native player to JavaScript: window.Android.playStream(url, name)
-        webView.addJavascriptInterface(new WebAppInterface(), "Android");
+            @Override
+            public void onChannelLongClick(Channel channel) {
+                toggleFavourite(channel);
+            }
 
-        // Load the IPTV Manager URL
-        String url = getString(R.string.app_url);
-        webView.loadUrl(url);
+            @Override
+            public void onFocusTransferToSidebar() {
+                int pos = sidebarAdapter.findSelectedOrFirstPosition();
+                sidebarRecycler.scrollToPosition(pos);
+                RecyclerView.ViewHolder vh = sidebarRecycler.findViewHolderForAdapterPosition(pos);
+                if (vh != null) {
+                    vh.itemView.requestFocus();
+                } else {
+                    sidebarRecycler.post(() -> {
+                        RecyclerView.ViewHolder vh2 = sidebarRecycler.findViewHolderForAdapterPosition(pos);
+                        if (vh2 != null) vh2.itemView.requestFocus();
+                        else sidebarRecycler.requestFocus();
+                    });
+                }
+            }
+        });
 
-        // Check for app updates in background
-        new AppUpdater(this, url).checkForUpdate();
+        // Load data
+        showLoading(true);
+        loadData();
+
+        // Check for app updates
+        String url = tokenManager.getBaseUrl();
+        if (url != null) {
+            new AppUpdater(this, url).checkForUpdate();
+        }
     }
 
-    /**
-     * Handle sidebar item click — calls appropriate JS bridge function.
-     */
+    // ── Data Loading ─────────────────────────────────────────
+
+    private void loadData() {
+        apiClient.getConfig(new ApiClient.Callback() {
+            @Override
+            public void onSuccess(JSONObject response) {
+                serverConfig = ServerConfig.fromJson(response);
+
+                // Check admin status
+                apiClient.getMe(new ApiClient.Callback() {
+                    @Override
+                    public void onSuccess(JSONObject meResp) {
+                        JSONObject user = meResp.optJSONObject("user");
+                        if (user != null) {
+                            isAdmin = user.optBoolean("is_admin", false);
+                        }
+                        loadChannels();
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        // Not critical, continue loading
+                        loadChannels();
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                showLoading(false);
+                Log.e(TAG, "Config load failed: " + error);
+                showEmptyState(getString(R.string.error_load_failed), error);
+            }
+        });
+    }
+
+    private void loadChannels() {
+        apiClient.getChannels(new ApiClient.Callback() {
+            @Override
+            public void onSuccess(JSONObject response) {
+                showLoading(false);
+                JSONArray channelsArr = response.optJSONArray("channels");
+                if (channelsArr == null) {
+                    showEmptyState(getString(R.string.empty_no_channels), getString(R.string.empty_import_hint));
+                    updateSidebar();
+                    return;
+                }
+
+                List<Channel> channels = new ArrayList<>();
+                for (int i = 0; i < channelsArr.length(); i++) {
+                    JSONObject obj = channelsArr.optJSONObject(i);
+                    if (obj != null) {
+                        channels.add(Channel.fromJson(obj));
+                    }
+                }
+
+                channelAdapter.setChannels(channels);
+                updateSidebar();
+                updateEmptyState();
+                loadEpgForVisibleChannels();
+            }
+
+            @Override
+            public void onError(String error) {
+                showLoading(false);
+                Log.e(TAG, "Channels load failed: " + error);
+                showEmptyState(getString(R.string.error_load_failed), error);
+                updateSidebar();
+            }
+        });
+    }
+
+    // ── EPG ──────────────────────────────────────────────────
+
+    private void loadEpgForVisibleChannels() {
+        mainHandler.removeCallbacks(epgRefreshRunnable);
+
+        List<Channel> visible = channelAdapter.getFilteredChannels();
+        if (visible.isEmpty()) {
+            mainHandler.postDelayed(epgRefreshRunnable, EPG_REFRESH_INTERVAL);
+            return;
+        }
+
+        // Build CSV of channel IDs (max 50 at a time for visible)
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(visible.size(), 50);
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) sb.append(",");
+            sb.append(visible.get(i).channelId);
+        }
+
+        apiClient.getEpg(sb.toString(), new ApiClient.Callback() {
+            @Override
+            public void onSuccess(JSONObject response) {
+                JSONObject epgObj = response.optJSONObject("epg");
+                if (epgObj != null) {
+                    Map<String, EpgEntry> epgMap = new HashMap<>();
+                    Iterator<String> keys = epgObj.keys();
+                    while (keys.hasNext()) {
+                        String channelId = keys.next();
+                        JSONObject entry = epgObj.optJSONObject(channelId);
+                        if (entry != null) {
+                            epgMap.put(channelId, EpgEntry.fromJson(entry));
+                        }
+                    }
+                    channelAdapter.updateEpg(epgMap);
+                }
+                // Schedule next refresh
+                mainHandler.postDelayed(epgRefreshRunnable, EPG_REFRESH_INTERVAL);
+            }
+
+            @Override
+            public void onError(String error) {
+                Log.w(TAG, "EPG load failed: " + error);
+                mainHandler.postDelayed(epgRefreshRunnable, EPG_REFRESH_INTERVAL);
+            }
+        });
+    }
+
+    // ── Sidebar ──────────────────────────────────────────────
+
+    private void updateSidebar() {
+        List<SidebarAdapter.SidebarItem> items = new ArrayList<>();
+        String activeFilter = channelAdapter.getCurrentFilter();
+
+        // All Channels
+        items.add(SidebarAdapter.SidebarItem.item(
+                R.drawable.ic_all_channels, "All Channels",
+                String.valueOf(channelAdapter.getAllCount()),
+                "all", null,
+                "all".equals(activeFilter)
+        ));
+
+        // Favourites
+        int favCount = channelAdapter.getFavouriteCount();
+        if (favCount > 0) {
+            items.add(SidebarAdapter.SidebarItem.item(
+                    R.drawable.ic_star, "Favourites",
+                    String.valueOf(favCount),
+                    "favourites", null,
+                    "favourites".equals(activeFilter)
+            ));
+        }
+
+        // Recently Played
+        if (serverConfig != null && !serverConfig.recents.isEmpty()) {
+            items.add(SidebarAdapter.SidebarItem.item(
+                    R.drawable.ic_history, "Recently Played",
+                    String.valueOf(serverConfig.recents.size()),
+                    "recent", null,
+                    "recent".equals(activeFilter)
+            ));
+        }
+
+        // Divider
+        items.add(SidebarAdapter.SidebarItem.divider());
+
+        // Groups
+        List<ChannelAdapter.GroupInfo> groups = channelAdapter.getGroups();
+        for (ChannelAdapter.GroupInfo g : groups) {
+            items.add(SidebarAdapter.SidebarItem.item(
+                    R.drawable.ic_collection, g.name,
+                    String.valueOf(g.count),
+                    "group", g.name,
+                    "group".equals(activeFilter) && g.name.equals(channelAdapter.getCurrentGroup())
+            ));
+        }
+
+        // Divider
+        items.add(SidebarAdapter.SidebarItem.divider());
+
+        // Server selector
+        String serverLabel = "No Server";
+        if (serverConfig != null && serverConfig.getActiveServer() != null) {
+            serverLabel = truncate(serverConfig.getActiveServer(), 15);
+        }
+        items.add(SidebarAdapter.SidebarItem.item(
+                R.drawable.ic_server, "Server: " + serverLabel,
+                null, "server", null, false
+        ));
+
+        // Credential selector
+        String credLabel = "No Credential";
+        if (serverConfig != null && serverConfig.getActiveCredential() != null) {
+            credLabel = truncate(serverConfig.getActiveCredential().username, 15);
+        }
+        items.add(SidebarAdapter.SidebarItem.item(
+                R.drawable.ic_user, "User: " + credLabel,
+                null, "credential", null, false
+        ));
+
+        // Divider
+        items.add(SidebarAdapter.SidebarItem.divider());
+
+        // Manage (import M3U, etc)
+        items.add(SidebarAdapter.SidebarItem.item(
+                R.drawable.ic_settings, "Manage",
+                null, "manage", null, false
+        ));
+
+        // Change Password
+        items.add(SidebarAdapter.SidebarItem.item(
+                R.drawable.ic_key, "Change Password",
+                null, "password", null, false
+        ));
+
+        // Admin Panel
+        if (isAdmin) {
+            items.add(SidebarAdapter.SidebarItem.item(
+                    R.drawable.ic_admin, "Admin Panel",
+                    null, "admin", null, false
+            ));
+        }
+
+        // Logout
+        items.add(SidebarAdapter.SidebarItem.item(
+                R.drawable.ic_logout, "Logout",
+                null, "logout", null, false
+        ));
+
+        sidebarAdapter.updateItems(items);
+    }
+
+    // ── Sidebar Click Handling ───────────────────────────────
+
     private void handleSidebarClick(SidebarAdapter.SidebarItem item) {
         if (item.actionType == null) return;
 
-        String js = null;
         switch (item.actionType) {
             case "all":
-                js = "window.tvNavigateTo('all')";
+                channelAdapter.setFilter("all", null);
+                updateSidebar();
+                updateEmptyState();
+                loadEpgForVisibleChannels();
                 break;
-            case "favourites":
-                js = "window.tvNavigateTo('favourites')";
-                break;
-            case "recent":
-                js = "window.tvNavigateTo('recent')";
-                break;
-            case "group":
-                String groupName = item.actionData.replace("\\", "\\\\").replace("'", "\\'");
-                js = "window.tvNavigateTo('group','" + groupName + "')";
-                break;
-            case "server":
-                js = "window.tvOpenServerSelector()";
-                break;
-            case "credential":
-                js = "window.tvOpenCredentialSelector()";
-                break;
-            case "manage":
-                js = "window.tvOpenManage()";
-                break;
-            case "password":
-                js = "window.tvChangePassword()";
-                break;
-            case "admin":
-                js = "window.tvOpenAdmin()";
-                break;
-            case "logout":
-                js = "window.tvLogout()";
-                break;
-        }
 
-        if (js != null) {
-            webView.evaluateJavascript("javascript:" + js, null);
+            case "favourites":
+                channelAdapter.setFilter("favourites", null);
+                updateSidebar();
+                updateEmptyState();
+                loadEpgForVisibleChannels();
+                break;
+
+            case "recent":
+                if (serverConfig != null && !serverConfig.recents.isEmpty()) {
+                    List<String> recentIds = new ArrayList<>();
+                    for (ServerConfig.RecentChannel r : serverConfig.recents) {
+                        recentIds.add(r.channelId);
+                    }
+                    channelAdapter.setRecentFilter(recentIds);
+                    updateSidebar();
+                    updateEmptyState();
+                    loadEpgForVisibleChannels();
+                }
+                break;
+
+            case "group":
+                channelAdapter.setFilter("group", item.actionData);
+                updateSidebar();
+                updateEmptyState();
+                loadEpgForVisibleChannels();
+                break;
+
+            case "server":
+                showServerSelector();
+                break;
+
+            case "credential":
+                showCredentialSelector();
+                break;
+
+            case "manage":
+            case "password":
+            case "admin":
+                openWebViewFallback(item.actionType);
+                break;
+
+            case "logout":
+                showLogoutConfirm();
+                break;
         }
     }
 
-    /**
-     * JavaScript interface exposed as window.Android in the WebView.
-     * Allows the web app to launch the native ExoPlayer for HLS streams
-     * and communicate sidebar data.
-     */
-    private class WebAppInterface {
-        @JavascriptInterface
-        public void playStream(String url, String name) {
-            playStream(url, name, null, null);
+    // ── Playback ─────────────────────────────────────────────
+
+    private void playChannel(Channel channel) {
+        if (serverConfig == null) return;
+
+        String server = serverConfig.getActiveServer();
+        ServerConfig.CredentialInfo cred = serverConfig.getActiveCredential();
+        if (server == null || cred == null) return;
+
+        // Remember position for focus restore
+        View focused = channelRecycler.getFocusedChild();
+        if (focused != null) {
+            lastFocusedChannelPosition = channelRecycler.getChildAdapterPosition(focused);
         }
 
-        @JavascriptInterface
-        public void playStream(String url, String name, String token, String baseUrl) {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
-                intent.putExtra(PlayerActivity.EXTRA_URL, url);
-                intent.putExtra(PlayerActivity.EXTRA_NAME, name);
-                if (token != null) intent.putExtra(PlayerActivity.EXTRA_TOKEN, token);
-                if (baseUrl != null) intent.putExtra(PlayerActivity.EXTRA_BASE_URL, baseUrl);
-                startActivity(intent);
-            });
+        // Build direct stream URL
+        String proto = server.startsWith("cf.") ? "https" : "http";
+        String directUrl = proto + "://" + server + "/live/" + cred.username + "/" + cred.password + "/" + channel.channelId + ".m3u8";
+
+        // Build proxy fallback URL
+        String baseUrl = tokenManager.getBaseUrl();
+        String fallbackUrl = baseUrl + "/proxy/" + channel.channelId + ".m3u8";
+
+        Intent intent = new Intent(this, PlayerActivity.class);
+        intent.putExtra(PlayerActivity.EXTRA_URL, directUrl);
+        intent.putExtra(PlayerActivity.EXTRA_NAME, channel.name);
+        intent.putExtra(PlayerActivity.EXTRA_TOKEN, tokenManager.getToken());
+        intent.putExtra(PlayerActivity.EXTRA_BASE_URL, baseUrl);
+        intent.putExtra(PlayerActivity.EXTRA_FALLBACK_URL, fallbackUrl);
+        startActivity(intent);
+
+        // Track as recent
+        apiClient.addRecent(channel.channelId, channel.name, channel.group, null);
+    }
+
+    // ── Favourite Toggle ─────────────────────────────────────
+
+    private void toggleFavourite(Channel channel) {
+        apiClient.toggleFavourite(channel.channelId, new ApiClient.Callback() {
+            @Override
+            public void onSuccess(JSONObject response) {
+                boolean newState = response.optBoolean("favourite", !channel.favourite);
+                channelAdapter.updateFavourite(channel.channelId, newState);
+                updateSidebar();
+                updateEmptyState();
+            }
+
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "Favourite toggle failed: " + error);
+            }
+        });
+    }
+
+    // ── Server / Credential Selector ─────────────────────────
+
+    private void showServerSelector() {
+        if (serverConfig == null || serverConfig.servers.isEmpty()) return;
+
+        String[] items = new String[serverConfig.servers.size()];
+        for (int i = 0; i < serverConfig.servers.size(); i++) {
+            String status = i < serverConfig.serverStatuses.size() ? serverConfig.serverStatuses.get(i) : "";
+            items[i] = serverConfig.servers.get(i);
+            if (status != null && !status.isEmpty()) {
+                items[i] += " (" + status + ")";
+            }
+            if (i == serverConfig.activeServerIndex) {
+                items[i] += " ✓";
+            }
         }
 
-        @JavascriptInterface
-        public void playStream(String url, String name, String token, String baseUrl, String fallbackUrl) {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
-                intent.putExtra(PlayerActivity.EXTRA_URL, url);
-                intent.putExtra(PlayerActivity.EXTRA_NAME, name);
-                if (token != null) intent.putExtra(PlayerActivity.EXTRA_TOKEN, token);
-                if (baseUrl != null) intent.putExtra(PlayerActivity.EXTRA_BASE_URL, baseUrl);
-                if (fallbackUrl != null) intent.putExtra(PlayerActivity.EXTRA_FALLBACK_URL, fallbackUrl);
-                startActivity(intent);
-            });
-        }
-
-        /**
-         * Called by web app when sidebar data is ready (after login, data changes, etc).
-         * JSON format: { allCount, favCount, recentCount, groups: [{name, count}],
-         *                serverLabel, credentialLabel, isAdmin, activeGroup }
-         */
-        @JavascriptInterface
-        public void onMenuDataReady(String jsonStr) {
-            runOnUiThread(() -> {
-                try {
-                    JSONObject data = new JSONObject(jsonStr);
-                    List<SidebarAdapter.SidebarItem> items = new ArrayList<>();
-
-                    String active = data.optString("activeGroup", "favourites");
-
-                    // All Channels
-                    items.add(SidebarAdapter.SidebarItem.item(
-                            R.drawable.ic_all_channels, "All Channels",
-                            String.valueOf(data.optInt("allCount", 0)),
-                            "all", null,
-                            "all".equals(active)
-                    ));
-
-                    // Favourites
-                    int favCount = data.optInt("favCount", 0);
-                    if (favCount > 0) {
-                        items.add(SidebarAdapter.SidebarItem.item(
-                                R.drawable.ic_star, "Favourites",
-                                String.valueOf(favCount),
-                                "favourites", null,
-                                "favourites".equals(active)
-                        ));
-                    }
-
-                    // Recently Played
-                    int recentCount = data.optInt("recentCount", 0);
-                    if (recentCount > 0) {
-                        items.add(SidebarAdapter.SidebarItem.item(
-                                R.drawable.ic_history, "Recently Played",
-                                String.valueOf(recentCount),
-                                "recent", null,
-                                "recent".equals(active)
-                        ));
-                    }
-
-                    // Divider
-                    items.add(SidebarAdapter.SidebarItem.divider());
-
-                    // Groups
-                    JSONArray groups = data.optJSONArray("groups");
-                    if (groups != null) {
-                        for (int i = 0; i < groups.length(); i++) {
-                            JSONObject g = groups.getJSONObject(i);
-                            String name = g.getString("name");
-                            int count = g.getInt("count");
-                            items.add(SidebarAdapter.SidebarItem.item(
-                                    R.drawable.ic_collection, name,
-                                    String.valueOf(count),
-                                    "group", name,
-                                    name.equals(active)
-                            ));
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(getString(R.string.select_server))
+                .setItems(items, (dialog, which) -> {
+                    if (which == serverConfig.activeServerIndex) return;
+                    int serverId = serverConfig.serverIds.get(which);
+                    apiClient.setActiveServer(serverId, new ApiClient.Callback() {
+                        @Override
+                        public void onSuccess(JSONObject response) {
+                            serverConfig.activeServerIndex = which;
+                            updateSidebar();
                         }
-                    }
 
-                    // Divider before settings
-                    items.add(SidebarAdapter.SidebarItem.divider());
-
-                    // Server selector
-                    String serverLabel = data.optString("serverLabel", "No Server");
-                    items.add(SidebarAdapter.SidebarItem.item(
-                            R.drawable.ic_server, "Server: " + truncate(serverLabel, 15),
-                            null, "server", null, false
-                    ));
-
-                    // Credential selector
-                    String credLabel = data.optString("credentialLabel", "No Credential");
-                    items.add(SidebarAdapter.SidebarItem.item(
-                            R.drawable.ic_user, "User: " + truncate(credLabel, 15),
-                            null, "credential", null, false
-                    ));
-
-                    // Divider
-                    items.add(SidebarAdapter.SidebarItem.divider());
-
-                    // Manage
-                    items.add(SidebarAdapter.SidebarItem.item(
-                            R.drawable.ic_settings, "Manage",
-                            null, "manage", null, false
-                    ));
-
-                    // Change Password
-                    items.add(SidebarAdapter.SidebarItem.item(
-                            R.drawable.ic_key, "Change Password",
-                            null, "password", null, false
-                    ));
-
-                    // Admin Panel (conditional)
-                    if (data.optBoolean("isAdmin", false)) {
-                        items.add(SidebarAdapter.SidebarItem.item(
-                                R.drawable.ic_admin, "Admin Panel",
-                                null, "admin", null, false
-                        ));
-                    }
-
-                    // Logout
-                    items.add(SidebarAdapter.SidebarItem.item(
-                            R.drawable.ic_logout, "Logout",
-                            null, "logout", null, false
-                    ));
-
-                    sidebarAdapter.updateItems(items);
-                } catch (Exception e) {
-                    Log.e(TAG, "Error parsing menu data", e);
-                }
-            });
-        }
-
-        /**
-         * Called by WebView when D-pad Left is pressed at the edge of content.
-         * Transfers focus back to the native sidebar.
-         */
-        @JavascriptInterface
-        public void onWebViewEdge(String direction) {
-            runOnUiThread(() -> {
-                if ("left".equals(direction)) {
-                    int pos = sidebarAdapter.findSelectedOrFirstPosition();
-                    sidebarRecycler.scrollToPosition(pos);
-                    RecyclerView.ViewHolder vh = sidebarRecycler.findViewHolderForAdapterPosition(pos);
-                    if (vh != null) {
-                        vh.itemView.requestFocus();
-                    } else {
-                        // ViewHolder not yet laid out, wait for layout
-                        sidebarRecycler.post(() -> {
-                            RecyclerView.ViewHolder vh2 = sidebarRecycler.findViewHolderForAdapterPosition(pos);
-                            if (vh2 != null) {
-                                vh2.itemView.requestFocus();
-                            } else {
-                                sidebarRecycler.requestFocus();
-                            }
-                        });
-                    }
-                }
-            });
-        }
-
-        /**
-         * Native speed test — tests server connectivity directly from the device.
-         */
-        @JavascriptInterface
-        public void speedTestNative(String serversJson) {
-            new Thread(() -> {
-                try {
-                    JSONArray servers = new JSONArray(serversJson);
-                    JSONArray results = new JSONArray();
-                    int threadCount = Math.min(servers.length(), 4);
-                    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-                    CountDownLatch latch = new CountDownLatch(servers.length());
-
-                    JSONObject[] resultSlots = new JSONObject[servers.length()];
-
-                    for (int i = 0; i < servers.length(); i++) {
-                        final int index = i;
-                        final JSONObject server = servers.getJSONObject(i);
-                        executor.submit(() -> {
-                            JSONObject result = new JSONObject();
-                            try {
-                                int serverId = server.optInt("server_id", 0);
-                                String hostname = server.getString("hostname");
-                                String username = server.getString("username");
-                                String password = server.getString("password");
-
-                                String proto = hostname.startsWith("cf.") ? "https" : "http";
-                                String testUrl = proto + "://" + hostname +
-                                        "/player_api.php?username=" + username + "&password=" + password;
-
-                                result.put("server_id", serverId);
-                                result.put("hostname", hostname);
-
-                                long startTime = System.currentTimeMillis();
-                                HttpURLConnection conn = (HttpURLConnection) new URL(testUrl).openConnection();
-                                conn.setRequestMethod("HEAD");
-                                conn.setConnectTimeout(5000);
-                                conn.setReadTimeout(10000);
-                                conn.setInstanceFollowRedirects(true);
-
-                                int responseCode = conn.getResponseCode();
-                                long latency = System.currentTimeMillis() - startTime;
-                                conn.disconnect();
-
-                                if (responseCode >= 200 && responseCode < 400) {
-                                    result.put("latency_ms", latency);
-                                    result.put("status", "online");
-                                } else {
-                                    result.put("latency_ms", JSONObject.NULL);
-                                    result.put("status", "offline");
-                                }
-                            } catch (Exception e) {
-                                try {
-                                    result.put("latency_ms", JSONObject.NULL);
-                                    result.put("status", "offline");
-                                } catch (Exception ignored) {}
-                                Log.w("SpeedTest", "Server test failed: " + e.getMessage());
-                            }
-                            resultSlots[index] = result;
-                            latch.countDown();
-                        });
-                    }
-
-                    latch.await();
-                    executor.shutdown();
-
-                    for (JSONObject r : resultSlots) {
-                        if (r != null) results.put(r);
-                    }
-
-                    final String jsonResult = results.toString();
-                    runOnUiThread(() -> {
-                        if (webView != null) {
-                            webView.evaluateJavascript(
-                                    "javascript:window._nativeSpeedTestResult('" +
-                                            jsonResult.replace("'", "\\'") + "')",
-                                    null
-                            );
+                        @Override
+                        public void onError(String error) {
+                            Log.e(TAG, "Server switch failed: " + error);
                         }
                     });
-                } catch (Exception e) {
-                    Log.e("SpeedTest", "Speed test error", e);
-                    runOnUiThread(() -> {
-                        if (webView != null) {
-                            webView.evaluateJavascript(
-                                    "javascript:window._nativeSpeedTestResult('[]')", null);
+                })
+                .show();
+    }
+
+    private void showCredentialSelector() {
+        if (serverConfig == null || serverConfig.credentials.isEmpty()) return;
+
+        String[] items = new String[serverConfig.credentials.size()];
+        for (int i = 0; i < serverConfig.credentials.size(); i++) {
+            items[i] = serverConfig.credentials.get(i).username;
+            if (i == serverConfig.activeCredentialIndex) {
+                items[i] += " ✓";
+            }
+        }
+
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(getString(R.string.select_credential))
+                .setItems(items, (dialog, which) -> {
+                    if (which == serverConfig.activeCredentialIndex) return;
+                    int credId = serverConfig.credentials.get(which).id;
+                    apiClient.setActiveCredential(credId, new ApiClient.Callback() {
+                        @Override
+                        public void onSuccess(JSONObject response) {
+                            serverConfig.activeCredentialIndex = which;
+                            updateSidebar();
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            Log.e(TAG, "Credential switch failed: " + error);
                         }
                     });
-                }
-            }).start();
+                })
+                .show();
+    }
+
+    // ── Logout ───────────────────────────────────────────────
+
+    private void showLogoutConfirm() {
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage(getString(R.string.confirm_logout))
+                .setPositiveButton(getString(R.string.logout), (dialog, which) -> {
+                    tokenManager.clear();
+                    ApiClient.reset();
+                    Intent intent = new Intent(this, LoginActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                })
+                .setNegativeButton(getString(R.string.cancel), null)
+                .show();
+    }
+
+    // ── WebView Fallback (admin, manage, password) ───────────
+
+    private void openWebViewFallback(String section) {
+        String baseUrl = tokenManager.getBaseUrl();
+        if (baseUrl == null) return;
+
+        String targetUrl;
+        switch (section) {
+            case "admin":
+                targetUrl = baseUrl + "/admin";
+                break;
+            case "manage":
+                targetUrl = baseUrl + "/#manage";
+                break;
+            case "password":
+                targetUrl = baseUrl + "/#password";
+                break;
+            default:
+                return;
+        }
+
+        // Launch system browser or a simple WebView activity
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(targetUrl));
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to open: " + targetUrl, e);
+        }
+    }
+
+    // ── UI Helpers ───────────────────────────────────────────
+
+    private void showLoading(boolean show) {
+        loadingSpinner.setVisibility(show ? View.VISIBLE : View.GONE);
+        channelRecycler.setVisibility(show ? View.GONE : View.VISIBLE);
+        emptyState.setVisibility(View.GONE);
+    }
+
+    private void showEmptyState(String title, String subtitle) {
+        emptyState.setVisibility(View.VISIBLE);
+        channelRecycler.setVisibility(View.GONE);
+        emptyTitle.setText(title);
+        emptySubtitle.setText(subtitle != null ? subtitle : "");
+    }
+
+    private void updateEmptyState() {
+        if (channelAdapter.getItemCount() == 0) {
+            String filter = channelAdapter.getCurrentFilter();
+            switch (filter) {
+                case "favourites":
+                    showEmptyState(getString(R.string.empty_no_favourites), null);
+                    break;
+                case "recent":
+                    showEmptyState(getString(R.string.empty_no_recent), null);
+                    break;
+                default:
+                    showEmptyState(getString(R.string.empty_no_channels), null);
+                    break;
+            }
+        } else {
+            emptyState.setVisibility(View.GONE);
+            channelRecycler.setVisibility(View.VISIBLE);
         }
     }
 
@@ -440,197 +654,8 @@ public class MainActivity extends Activity {
         return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    private void configureWebView() {
-        WebSettings webSettings = webView.getSettings();
+    // ── Fullscreen ───────────────────────────────────────────
 
-        // Core settings
-        webSettings.setJavaScriptEnabled(true);
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setDatabaseEnabled(true);
-        webSettings.setAllowFileAccess(true);
-        webSettings.setAllowContentAccess(true);
-        webSettings.setLoadsImagesAutomatically(true);
-        webSettings.setSupportZoom(false);
-        webSettings.setBuiltInZoomControls(false);
-        webSettings.setDisplayZoomControls(false);
-
-        // Media settings - critical for in-app video playback
-        webSettings.setMediaPlaybackRequiresUserGesture(false);
-
-        // Mixed content - needed for HTTPS page loading HTTP IPTV streams
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        }
-
-        // Enable wide viewport so the viewport meta tag is respected
-        webSettings.setUseWideViewPort(true);
-        webSettings.setLoadWithOverviewMode(true);
-
-        // Cache settings
-        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
-
-        // Support multiple windows (for player.html opening in new window)
-        webSettings.setSupportMultipleWindows(true);
-        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
-
-        // Custom User-Agent to identify as Android TV app
-        String defaultUA = webSettings.getUserAgentString();
-        webSettings.setUserAgentString(defaultUA + " AndroidTV IPTVManager/1.0");
-
-        // Enable cookies
-        CookieManager cookieManager = CookieManager.getInstance();
-        cookieManager.setAcceptCookie(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cookieManager.setAcceptThirdPartyCookies(webView, true);
-        }
-
-        // WebViewClient - keeps all navigation in-app
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return false;
-            }
-
-            @Override
-            @SuppressWarnings("deprecation")
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return false;
-            }
-
-            @Override
-            public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                super.onPageStarted(view, url, favicon);
-                hideSystemUI();
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                hideSystemUI();
-            }
-        });
-
-        // WebChromeClient - handles HTML5 fullscreen video playback
-        webView.setWebChromeClient(new WebChromeClient() {
-
-            @Override
-            public void onShowCustomView(View view, CustomViewCallback callback) {
-                if (customView != null) {
-                    callback.onCustomViewHidden();
-                    return;
-                }
-
-                customView = view;
-                customViewCallback = callback;
-
-                // Hide WebView and sidebar, show fullscreen video container
-                webView.setVisibility(View.GONE);
-                sidebarRecycler.setVisibility(View.GONE);
-                fullscreenContainer.setVisibility(View.VISIBLE);
-                fullscreenContainer.addView(view, new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                ));
-
-                hideSystemUI();
-            }
-
-            @Override
-            public void onHideCustomView() {
-                if (customView == null) {
-                    return;
-                }
-
-                fullscreenContainer.removeView(customView);
-                fullscreenContainer.setVisibility(View.GONE);
-                webView.setVisibility(View.VISIBLE);
-                sidebarRecycler.setVisibility(View.VISIBLE);
-
-                if (customViewCallback != null) {
-                    customViewCallback.onCustomViewHidden();
-                }
-
-                customView = null;
-                customViewCallback = null;
-
-                hideSystemUI();
-            }
-
-            @Override
-            public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
-                WebView.HitTestResult result = view.getHitTestResult();
-                String url = result.getExtra();
-
-                if (url != null) {
-                    view.loadUrl(url);
-                    return false;
-                }
-
-                WebView tempWebView = new WebView(MainActivity.this);
-                tempWebView.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
-                        String targetUrl = request.getUrl().toString();
-                        webView.loadUrl(targetUrl);
-                        return true;
-                    }
-
-                    @Override
-                    @SuppressWarnings("deprecation")
-                    public boolean shouldOverrideUrlLoading(WebView v, String targetUrl) {
-                        webView.loadUrl(targetUrl);
-                        return true;
-                    }
-                });
-
-                WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
-                transport.setWebView(tempWebView);
-                resultMsg.sendToTarget();
-                return true;
-            }
-
-            @Override
-            public void onCloseWindow(WebView window) {
-                super.onCloseWindow(window);
-            }
-        });
-
-        // Download listener - intercept .m3u file downloads
-        webView.setDownloadListener(new DownloadListener() {
-            @Override
-            public void onDownloadStart(String url, String userAgent, String contentDisposition,
-                                        String mimetype, long contentLength) {
-                if (url.endsWith(".m3u") || url.endsWith(".m3u8") ||
-                        "application/x-mpegurl".equals(mimetype) ||
-                        "audio/x-mpegurl".equals(mimetype) ||
-                        "application/vnd.apple.mpegurl".equals(mimetype)) {
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW);
-                        intent.setDataAndType(Uri.parse(url), "video/*");
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(intent);
-                    } catch (Exception e) {
-                        webView.loadUrl(url);
-                    }
-                } else {
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                        startActivity(intent);
-                    } catch (Exception e) {
-                        // Fallback - ignore the download
-                    }
-                }
-            }
-        });
-
-        // Set WebView background to black (matches TV UI)
-        webView.setBackgroundColor(0xFF000000);
-    }
-
-    /**
-     * Enable immersive fullscreen mode - hides status bar, navigation bar.
-     */
     private void hideSystemUI() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             getWindow().getDecorView().setSystemUiVisibility(
@@ -647,48 +672,34 @@ public class MainActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
-            hideSystemUI();
-        }
+        if (hasFocus) hideSystemUI();
     }
 
-    /**
-     * Handle back button - navigate WebView history before exiting.
-     */
+    // ── Back Button ──────────────────────────────────────────
+
     @Override
     public void onBackPressed() {
-        // If fullscreen video is showing, exit fullscreen first
-        if (customView != null) {
-            webView.getWebChromeClient();
-            if (customViewCallback != null) {
-                customViewCallback.onCustomViewHidden();
+        // If channel list has focus, transfer to sidebar
+        if (channelRecycler.hasFocus()) {
+            int pos = sidebarAdapter.findSelectedOrFirstPosition();
+            sidebarRecycler.scrollToPosition(pos);
+            RecyclerView.ViewHolder vh = sidebarRecycler.findViewHolderForAdapterPosition(pos);
+            if (vh != null) {
+                vh.itemView.requestFocus();
+            } else {
+                sidebarRecycler.requestFocus();
             }
-            fullscreenContainer.removeView(customView);
-            fullscreenContainer.setVisibility(View.GONE);
-            webView.setVisibility(View.VISIBLE);
-            sidebarRecycler.setVisibility(View.VISIBLE);
-            customView = null;
-            customViewCallback = null;
             return;
         }
 
-        // If WebView has focus, transfer to sidebar
-        if (webView.hasFocus()) {
-            webView.evaluateJavascript("javascript:window.tvCheckLeftEdge && window.tvCheckLeftEdge()", null);
-            return;
-        }
-
-        // If WebView can go back, navigate back in history
-        if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        // If sidebar has focus, show exit confirmation
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("Exit IPTV Manager?")
+                .setPositiveButton("Exit", (dialog, which) -> finish())
+                .setNegativeButton(getString(R.string.cancel), null)
+                .show();
     }
 
-    /**
-     * Handle key events for D-pad navigation on Android TV.
-     */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
@@ -698,39 +709,36 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
+    // ── Lifecycle ────────────────────────────────────────────
+
     @Override
     protected void onResume() {
         super.onResume();
-        webView.onResume();
         hideSystemUI();
 
-        // Restore focus after returning from player
+        // Restore focus to last channel
         mainHandler.postDelayed(() -> {
-            if (webView != null) {
-                webView.evaluateJavascript("javascript:window.tvRestoreFocus && window.tvRestoreFocus()", null);
+            if (channelAdapter.getItemCount() > 0 && !sidebarRecycler.hasFocus()) {
+                int pos = Math.min(lastFocusedChannelPosition, channelAdapter.getItemCount() - 1);
+                channelRecycler.scrollToPosition(pos);
+                RecyclerView.ViewHolder vh = channelRecycler.findViewHolderForAdapterPosition(pos);
+                if (vh != null) vh.itemView.requestFocus();
             }
-        }, 300);
+        }, 200);
+
+        // Restart EPG refresh
+        mainHandler.postDelayed(epgRefreshRunnable, EPG_REFRESH_INTERVAL);
     }
 
     @Override
     protected void onPause() {
-        webView.onPause();
+        mainHandler.removeCallbacks(epgRefreshRunnable);
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
-        if (webView != null) {
-            webView.stopLoading();
-            webView.clearHistory();
-            webView.clearCache(true);
-            webView.loadUrl("about:blank");
-            webView.onPause();
-            webView.removeAllViews();
-            webView.destroyDrawingCache();
-            webView.destroy();
-            webView = null;
-        }
+        mainHandler.removeCallbacks(epgRefreshRunnable);
         super.onDestroy();
     }
 }

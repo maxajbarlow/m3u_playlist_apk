@@ -20,18 +20,50 @@
         android:layout_height="match_parent"
         android:layout_weight="1">
 
-        <WebView
-            android:id="@+id/webview"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <!-- Container for fullscreen HTML5 video -->
-        <FrameLayout
-            android:id="@+id/fullscreen_container"
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/channel_recycler"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#000000"
-            android:visibility="gone" />
+            android:clipToPadding="false"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
+
+        <!-- Empty state -->
+        <LinearLayout
+            android:id="@+id/empty_state"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/empty_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/empty_no_channels"
+                android:textColor="#A0A0C0"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/empty_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/empty_import_hint"
+                android:textColor="#606080"
+                android:textSize="14sp"
+                android:layout_marginTop="8dp" />
+        </LinearLayout>
+
+        <!-- Loading spinner -->
+        <ProgressBar
+            android:id="@+id/loading_spinner"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:indeterminateTint="#6C63FF" />
     </FrameLayout>
 
 </LinearLayout>

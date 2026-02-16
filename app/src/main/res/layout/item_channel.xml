@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:background="@drawable/channel_item_focus"
+    android:focusable="true"
+    android:focusableInTouchMode="true"
+    android:descendantFocusability="blocksDescendants">
+
+    <!-- Channel info (left side) -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/channel_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#EAEAFF"
+            android:textSize="16sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/channel_epg"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#A0A0C0"
+            android:textSize="12sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Favourite star (right side) -->
+    <ImageView
+        android:id="@+id/channel_star"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="12dp"
+        android:src="@drawable/ic_star"
+        android:visibility="gone"
+        android:contentDescription="Favourite" />
+</LinearLayout>

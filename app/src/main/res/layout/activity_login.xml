@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D1A">
+
+    <LinearLayout
+        android:layout_width="400dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:background="@drawable/login_card_bg"
+        android:padding="32dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="@string/app_name"
+            android:textColor="#EAEAFF"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp" />
+
+        <EditText
+            android:id="@+id/input_server_url"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/search_background"
+            android:hint="@string/hint_server_url"
+            android:textColorHint="#606080"
+            android:textColor="#EAEAFF"
+            android:textSize="14sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:inputType="textUri"
+            android:imeOptions="actionNext"
+            android:singleLine="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:nextFocusDown="@+id/input_username"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/input_username"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/search_background"
+            android:hint="@string/hint_username"
+            android:textColorHint="#606080"
+            android:textColor="#EAEAFF"
+            android:textSize="14sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:inputType="text"
+            android:imeOptions="actionNext"
+            android:singleLine="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:nextFocusDown="@+id/input_password"
+            android:layout_marginBottom="12dp" />
+
+        <EditText
+            android:id="@+id/input_password"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/search_background"
+            android:hint="@string/hint_password"
+            android:textColorHint="#606080"
+            android:textColor="#EAEAFF"
+            android:textSize="14sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:inputType="textPassword"
+            android:imeOptions="actionDone"
+            android:singleLine="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:nextFocusDown="@+id/btn_login"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/error_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FF6B6B"
+            android:textSize="13sp"
+            android:visibility="gone"
+            android:layout_marginBottom="12dp" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp">
+
+            <TextView
+                android:id="@+id/btn_login"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/login_button_bg"
+                android:gravity="center"
+                android:text="@string/btn_login"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:clickable="true" />
+
+            <ProgressBar
+                android:id="@+id/login_spinner"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                android:indeterminateTint="#FFFFFF" />
+        </FrameLayout>
+
+    </LinearLayout>
+</FrameLayout>
