@@ -321,9 +321,30 @@ public class MainActivity extends Activity {
         // Divider
         items.add(SidebarAdapter.SidebarItem.divider());
 
-        // Groups
+        // Groups — apply saved group order if available
         List<ChannelAdapter.GroupInfo> groups = channelAdapter.getGroups();
-        for (ChannelAdapter.GroupInfo g : groups) {
+        Map<String, ChannelAdapter.GroupInfo> groupMap = new HashMap<>();
+        for (ChannelAdapter.GroupInfo g : groups) groupMap.put(g.name, g);
+
+        List<ChannelAdapter.GroupInfo> orderedGroups = new ArrayList<>();
+        if (serverConfig != null && !serverConfig.groupOrder.isEmpty()) {
+            // Add groups in saved order first
+            for (String name : serverConfig.groupOrder) {
+                ChannelAdapter.GroupInfo g = groupMap.remove(name);
+                if (g != null) orderedGroups.add(g);
+            }
+            // Append any new groups not in saved order (alphabetical)
+            List<String> remaining = new ArrayList<>(groupMap.keySet());
+            java.util.Collections.sort(remaining);
+            for (String name : remaining) orderedGroups.add(groupMap.get(name));
+        } else {
+            // Default: alphabetical
+            List<String> names = new ArrayList<>(groupMap.keySet());
+            java.util.Collections.sort(names);
+            for (String name : names) orderedGroups.add(groupMap.get(name));
+        }
+
+        for (ChannelAdapter.GroupInfo g : orderedGroups) {
             items.add(SidebarAdapter.SidebarItem.item(
                     R.drawable.ic_collection, g.name,
                     String.valueOf(g.count),

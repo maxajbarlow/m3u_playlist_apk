@@ -14,6 +14,7 @@ public class ServerConfig {
     public int activeServerIndex = 0;
     public int activeCredentialIndex = 0;
     public List<RecentChannel> recents = new ArrayList<>();
+    public List<String> groupOrder = new ArrayList<>();
 
     public static class CredentialInfo {
         public int id;
@@ -86,6 +87,13 @@ public class ServerConfig {
             for (int i = 0; i < recentArr.length(); i++) {
                 JSONObject r = recentArr.optJSONObject(i);
                 if (r != null) cfg.recents.add(RecentChannel.fromJson(r));
+            }
+        }
+
+        JSONArray groupOrderArr = obj.optJSONArray("group_order");
+        if (groupOrderArr != null) {
+            for (int i = 0; i < groupOrderArr.length(); i++) {
+                cfg.groupOrder.add(groupOrderArr.optString(i, ""));
             }
         }
 
