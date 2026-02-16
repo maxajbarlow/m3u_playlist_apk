@@ -182,18 +182,27 @@ public class PlayerActivity extends Activity {
             Log.d(TAG, "Audio focus request result: " + result);
         }
 
-        // 2B. Custom LoadControl — tune buffers for Fire TV Stick
+        // 2B. Custom LoadControl — tuned for Fire TV Stick (limited RAM)
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                        25_000,  // minBufferMs (was 10s, back to default 25s)
-                        50_000,  // maxBufferMs (was 30s, back to default 50s)
-                        1_500,   // bufferForPlaybackMs (keep fast start)
-                        3_000    // bufferForPlaybackAfterRebufferMs (keep fast recovery)
+                        15_000,  // minBufferMs — faster to start (was 25s)
+                        35_000,  // maxBufferMs — reduce memory pressure (was 50s)
+                        1_200,   // bufferForPlaybackMs — aggressive start
+                        2_500    // bufferForPlaybackAfterRebufferMs — fast recovery
                 )
+                .setTargetBufferBytes(30 * 1024 * 1024) // 30MB cap (was ~60MB default)
                 .build();
 
-        // 2C. DefaultTrackSelector — let ABR decide quality (no resolution cap)
+        // 2C. DefaultTrackSelector — constrain for Fire TV Stick hardware
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+        trackSelector.setParameters(
+                trackSelector.buildUponParameters()
+                        .setMaxVideoSize(1920, 1080)     // Cap at 1080p
+                        .setMaxVideoBitrate(8_000_000)   // Cap at 8 Mbps
+                        .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H264) // Prefer H.264
+                        .setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC)  // Prefer AAC
+                        .build()
+        );
 
         // 2D. DefaultBandwidthMeter — enable adaptive bitrate
         DefaultBandwidthMeter bandwidthMeter = new DefaultBandwidthMeter.Builder(this).build();
@@ -203,6 +212,7 @@ public class PlayerActivity extends Activity {
                 .setLoadControl(loadControl)
                 .setTrackSelector(trackSelector)
                 .setBandwidthMeter(bandwidthMeter)
+                .setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
                 .build();
 
         playerView.setPlayer(player);
@@ -276,6 +286,20 @@ public class PlayerActivity extends Activity {
                     return;
                 }
 
+                // Non-transient errors (HTTP 4xx, invalid content) — skip retries, go to fallback
+                if (!isTransientError(cause) && fallbackUrl != null && !streamUrl.equals(fallbackUrl)) {
+                    Log.w(TAG, "Non-transient error, skipping retries — trying fallback");
+                    reportDebug("player", "Non-transient error, fallback immediately",
+                            "channel", streamName, "cause", causeMsg);
+                    streamUrl = fallbackUrl;
+                    fallbackUrl = null;
+                    errorRetryCount = 0;
+                    behindLiveRetries = 0;
+                    releasePlayer();
+                    initPlayer(streamUrl);
+                    return;
+                }
+
                 // 2G. General error retry with exponential backoff
                 if (errorRetryCount < MAX_ERROR_RETRIES) {
                     long delay = RETRY_DELAYS_MS[errorRetryCount];
@@ -317,11 +341,13 @@ public class PlayerActivity extends Activity {
         };
         player.addListener(playerListener);
 
-        // 2E. Custom HttpDataSource.Factory
+        // 2E. Custom HttpDataSource.Factory — optimized for live HLS
         DefaultHttpDataSource.Factory httpDataSourceFactory = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(8_000)
-                .setReadTimeoutMs(15_000)
-                .setAllowCrossProtocolRedirects(true);
+                .setConnectTimeoutMs(5_000)        // Faster connect-or-fail
+                .setReadTimeoutMs(12_000)           // Tighter for segments
+                .setAllowCrossProtocolRedirects(true)
+                .setKeepPostFor302Redirects(true)
+                .setUserAgent("IPTV-Manager/ExoPlayer");
 
         // 2F. HlsMediaSource with LiveConfiguration
         hlsFactory = new HlsMediaSource.Factory(httpDataSourceFactory)
@@ -384,6 +410,36 @@ public class PlayerActivity extends Activity {
                 Log.w(TAG, "Debug report failed: " + e.getMessage());
             }
         }).start();
+    }
+
+    /**
+     * Check if an error is transient (network timeout, server error) vs permanent
+     * (HTTP 4xx, invalid content). Non-transient errors skip retries and go straight to fallback.
+     */
+    private static boolean isTransientError(Throwable e) {
+        if (e == null) return true; // assume transient if unknown
+        String msg = e.getMessage();
+        if (msg == null) msg = "";
+        String className = e.getClass().getSimpleName();
+        // Network timeouts and connection failures are transient
+        if (className.contains("Timeout") || className.contains("ConnectException")
+                || className.contains("UnknownHostException") || className.contains("SocketException")) {
+            return true;
+        }
+        // HTTP 4xx errors are non-transient (client error, auth failure, not found)
+        if (msg.contains("Response code: 4") || msg.contains("403") || msg.contains("404")
+                || msg.contains("401") || msg.contains("451")) {
+            return false;
+        }
+        // HTTP 5xx are transient (server error, might recover)
+        if (msg.contains("Response code: 5") || msg.contains("502") || msg.contains("503")) {
+            return true;
+        }
+        // Invalid content type or parsing errors are non-transient
+        if (className.contains("ParserException") || className.contains("UnrecognizedInputFormatException")) {
+            return false;
+        }
+        return true; // default to transient
     }
 
     private static boolean isBehindLiveWindow(Throwable e) {
