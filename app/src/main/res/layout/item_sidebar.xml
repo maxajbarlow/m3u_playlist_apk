@@ -4,24 +4,25 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:padding="12dp"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:layout_marginStart="8dp"
-    android:layout_marginEnd="8dp"
-    android:layout_marginTop="2dp"
-    android:layout_marginBottom="2dp"
-    android:minHeight="44dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:layout_marginStart="6dp"
+    android:layout_marginEnd="6dp"
+    android:layout_marginTop="1dp"
+    android:layout_marginBottom="1dp"
+    android:minHeight="36dp"
     android:focusable="true"
     android:focusableInTouchMode="true"
     android:background="@drawable/sidebar_item_focus">
 
     <ImageView
         android:id="@+id/sidebar_icon"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
         android:tint="#606080"
-        android:layout_marginEnd="10dp" />
+        android:layout_marginEnd="8dp" />
 
     <TextView
         android:id="@+id/sidebar_label"
@@ -29,7 +30,7 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:textColor="#a0a0c0"
-        android:textSize="16sp"
+        android:textSize="14sp"
         android:singleLine="true"
         android:ellipsize="end" />
 
@@ -38,13 +39,13 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="#606080"
-        android:textSize="13sp"
+        android:textSize="11sp"
         android:background="@drawable/badge_background"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
-        android:minWidth="24dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:minWidth="20dp"
         android:gravity="center"
         android:visibility="gone" />
 

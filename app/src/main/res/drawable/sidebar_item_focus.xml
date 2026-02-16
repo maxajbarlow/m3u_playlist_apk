@@ -6,8 +6,8 @@
             <item>
                 <shape android:shape="rectangle">
                     <solid android:color="#2a2a4e" />
-                    <corners android:radius="10dp" />
-                    <stroke android:width="2dp" android:color="#00d4ff" />
+                    <corners android:radius="8dp" />
+                    <stroke android:width="1.5dp" android:color="#00d4ff" />
                 </shape>
             </item>
         </layer-list>
@@ -18,13 +18,13 @@
             <item>
                 <shape android:shape="rectangle">
                     <solid android:color="#1c1c3a" />
-                    <corners android:radius="10dp" />
+                    <corners android:radius="8dp" />
                 </shape>
             </item>
             <item android:width="3dp">
                 <shape android:shape="rectangle">
                     <solid android:color="#6c63ff" />
-                    <corners android:topLeftRadius="10dp" android:bottomLeftRadius="10dp" />
+                    <corners android:topLeftRadius="8dp" android:bottomLeftRadius="8dp" />
                 </shape>
             </item>
         </layer-list>
@@ -33,7 +33,7 @@
     <item>
         <shape android:shape="rectangle">
             <solid android:color="@android:color/transparent" />
-            <corners android:radius="10dp" />
+            <corners android:radius="8dp" />
         </shape>
     </item>
 </selector>
