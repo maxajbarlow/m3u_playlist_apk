@@ -6,9 +6,14 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +32,7 @@ public class ApiClient {
     private final TokenManager tokenManager;
     private final ExecutorService executor = Executors.newFixedThreadPool(3);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private WeakReference<Activity> activityRef;
 
     public interface Callback {
         void onSuccess(JSONObject response);
@@ -44,12 +50,36 @@ public class ApiClient {
         return instance;
     }
 
+    /** Set the current activity for auth error redirects */
+    public void setActivity(Activity activity) {
+        this.activityRef = new WeakReference<>(activity);
+    }
+
     /** Reset singleton (for logout) */
     public static synchronized void reset() {
         if (instance != null) {
             instance.executor.shutdownNow();
             instance = null;
         }
+    }
+
+    /** Check if an error is an auth/token error and redirect to login if so */
+    private boolean handleAuthError(String error) {
+        if (error != null && (error.contains("Token expired") || error.contains("Token invalidated")
+                || error.contains("Invalid token") || error.contains("Missing or invalid authorization"))) {
+            mainHandler.post(() -> {
+                Activity activity = activityRef != null ? activityRef.get() : null;
+                if (activity != null && !activity.isFinishing()) {
+                    tokenManager.clear();
+                    Intent intent = new Intent(activity, LoginActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    activity.startActivity(intent);
+                    activity.finish();
+                }
+            });
+            return true;
+        }
+        return false;
     }
 
     // ── Auth ─────────────────────────────────────────────────
@@ -256,12 +286,18 @@ public class ApiClient {
             return new JSONObject(body);
         } else {
             String errorBody = sb.toString();
+            String errorMsg;
             try {
                 JSONObject errObj = new JSONObject(errorBody);
-                throw new Exception(errObj.optString("error", "Server error " + code));
+                errorMsg = errObj.optString("error", "Server error " + code);
             } catch (org.json.JSONException je) {
-                throw new Exception("Server error " + code);
+                errorMsg = "Server error " + code;
             }
+            // Intercept auth errors — redirect to login on main thread
+            if (code == 401) {
+                handleAuthError(errorMsg);
+            }
+            throw new Exception(errorMsg);
         }
     }
 

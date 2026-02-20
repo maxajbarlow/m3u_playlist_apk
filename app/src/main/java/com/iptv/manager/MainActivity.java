@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
 
         tokenManager = new TokenManager(this);
         apiClient = ApiClient.getInstance(tokenManager);
+        apiClient.setActivity(this);
 
         // Sidebar
         sidebarRecycler = findViewById(R.id.sidebar_recycler);
